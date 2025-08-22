@@ -1,15 +1,13 @@
 import React, { useState, useMemo, useEffect } from "react";
-import Sidebar from "./components/Sidebar";
-import Header from "./components/Header";
-import DraggableStatsCards from "./components/DraggableStatsCards";
-import Filters from "./components/Filters";
-import AttendanceTable from "./components/AttendanceTable";
-import KeyboardShortcuts from "./components/KeyboardShortcuts";
-import About from "./components/About";
-import Employees from "./components/Employees";
-import Devices from "./components/Devices";
-import Reports from "./components/Reports";
-import Settings from "./components/Settings";
+import Sidebar from "./ui/components/Sidebar";
+import Header from "./ui/components/Header";
+import Dashboard from "./ui/components/Dashboard";
+import KeyboardShortcuts from "./ui/components/KeyboardShortcuts";
+import About from "./ui/components/About";
+import Employees from "./ui/components/Employees";
+import Devices from "./ui/components/Devices";
+import Reports from "./ui/components/Reports";
+import Settings from "./ui/components/Settings";
 import { 
   LayoutDashboard, 
   Users, 
@@ -60,10 +58,7 @@ const shortcuts = [
   { description: "Sync Logs", keys: "Ctrl + R" },
 ];
 
-const pages = [
-  { name: "Dashboard", key: "dashboard" },
-  { name: "About", key: "about" },
-];
+
 
 function exportToCSV(data) {
   const headers = ["Employee", "ID", "In Time", "Out Time", "Status", "Method"];
@@ -92,7 +87,7 @@ export default function App() {
   const [attendance] = useState(initialAttendanceData);
   const [loading] = useState(false);
   const [filters, setFilters] = useState({ date: "", name: "", type: "", onExport: handleExport });
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [page, setPage] = useState("dashboard");
 
@@ -141,7 +136,7 @@ export default function App() {
             break;
           case 'k':
             e.preventDefault();
-            setShowShortcuts(!showShortcuts);
+            setShowShortcuts(prev => !prev);
             break;
           case 't':
             e.preventDefault();
@@ -160,7 +155,7 @@ export default function App() {
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [sidebarOpen, showShortcuts]);
+  }, [sidebarOpen, showShortcuts, isDark, toggleTheme, handleExport]);
 
   // Filtering logic
   const filteredData = useMemo(() => {
@@ -203,11 +198,18 @@ export default function App() {
         />
         {/* Main dashboard content */}
         <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-8 w-full flex flex-col gap-8">
-          {page === "dashboard" && <>
-            <DraggableStatsCards stats={stats} onStatsReorder={handleStatsReorder} isDark={isDark} />
-            <Filters filters={filters} setFilters={setFilters} isDark={isDark} />
-            <AttendanceTable data={filteredData} loading={loading} isDark={isDark} />
-          </>}
+          {page === "dashboard" && (
+            <Dashboard 
+              stats={stats} 
+              onStatsReorder={handleStatsReorder} 
+              isDark={isDark} 
+              filters={filters} 
+              setFilters={setFilters} 
+              filteredData={filteredData} 
+              loading={loading}
+              onExport={handleExport}
+            />
+          )}
           {page === "about" && <About isDark={isDark} />}
           {page === "employees" && <Employees />}
           {page === "devices" && <Devices />}

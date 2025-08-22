@@ -1,6 +1,6 @@
 import React from "react";
-import logoWhite from "../assets/logo white.png";
-import logoBlack from "../assets/logo black.png";
+import logoWhite from "../../assets/logo_white.png";
+import logoBlack from "../../assets/logo_black.png";
 
 export default function Sidebar({ open, setOpen, isDark, navLinks = [], onNav }) {
   return (

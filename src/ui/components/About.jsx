@@ -1,7 +1,7 @@
 import React from "react";
 import { Heart, Code, Palette, Zap, Shield, Users } from "lucide-react";
-import logoWhite from "../assets/logo white.png";
-import logoBlack from "../assets/logo black.png";
+import logoWhite from "../../assets/logo_white.png";
+import logoBlack from "../../assets/logo_black.png";
 
 export default function About({ isDark }) {
   return (
@@ -64,7 +64,7 @@ export default function About({ isDark }) {
                 H
               </div>
               <div className="flex-1">
-                <div className="font-semibold text-lg text-light-text dark:text-dark-text">Henok E.</div>
+                <div className="font-semibold text-lg text-light-text dark:text-dark-text">Henok Eyayalem</div>
                 <div className="text-sm text-light-textSecondary dark:text-dark-textSecondary mb-1">Lead Developer & Architect</div>
                 <div className="text-xs text-light-accent dark:text-dark-accent">Full-Stack Development, System Design</div>
               </div>
@@ -72,12 +72,12 @@ export default function About({ isDark }) {
             
             <div className="flex items-center gap-4 p-4 bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 rounded-lg">
               <div className="w-16 h-16 rounded-full bg-gradient-to-r from-green-400 to-blue-500 flex items-center justify-center text-white font-bold text-2xl shadow-lg">
-                Y
+                I
               </div>
               <div className="flex-1">
-                <div className="font-semibold text-lg text-light-text dark:text-dark-text">Your Name</div>
-                <div className="text-sm text-light-textSecondary dark:text-dark-textSecondary mb-1">UI/UX Designer</div>
-                <div className="text-xs text-light-accent dark:text-dark-accent">User Experience, Visual Design</div>
+                <div className="font-semibold text-lg text-light-text dark:text-dark-text">Isam Ahmed</div>
+                <div className="text-sm text-light-textSecondary dark:text-dark-textSecondary mb-1">Full-Stack Developer</div>
+                <div className="text-xs text-light-accent dark:text-dark-accent">Full-Stack Development, System Design,User Experience</div>
               </div>
             </div>
           </div>

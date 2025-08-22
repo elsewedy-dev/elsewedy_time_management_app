@@ -1,8 +1,8 @@
 import React from "react";
 import { Keyboard } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
-import logoWhite from "../assets/logo white.png";
-import logoBlack from "../assets/logo black.png";
+import logoWhite from "../../assets/logo_white.png";
+import logoBlack from "../../assets/logo_black.png";
 
 export default function Header({ onMenuClick, sidebarOpen, isDark, toggleTheme, onShowShortcuts }) {
   return (

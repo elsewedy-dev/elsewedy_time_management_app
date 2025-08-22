@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Download } from "lucide-react";
+import { Download, Users, UserX, Clock, Activity, TrendingUp } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 const mockData = [
@@ -30,34 +30,86 @@ export default function Reports() {
     document.body.removeChild(link);
   }
 
+  // Enhanced stats with icons, descriptions, and "This week" retained
+  const enhancedStats = [
+    {
+      label: "Total Present",
+      value: 245,
+      icon: <Users className="w-6 h-6 text-green-500" />,
+      description: "Employees present this week",
+      trend: "This week",
+      color: "green"
+    },
+    {
+      label: "Total Absent",
+      value: 55,
+      icon: <UserX className="w-6 h-6 text-red-500" />,
+      description: "Employees absent this week",
+      trend: "This week",
+      color: "red"
+    },
+    {
+      label: "Late Arrivals",
+      value: 12,
+      icon: <Clock className="w-6 h-6 text-yellow-500" />,
+      description: "Late arrivals this week",
+      trend: "This week",
+      color: "yellow"
+    }
+  ];
+
   return (
-    <div className="w-full">
+    <div className="w-full space-y-8">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8 mt-2">
-        <h2 className="text-2xl font-bold text-light-text dark:text-dark-text">Reports</h2>
+        <div>
+          <h2 className="text-3xl font-bold text-light-text dark:text-dark-text flex items-center gap-3">
+            <Activity className="w-8 h-8 text-light-accent dark:text-dark-accent" />
+            Reports
+          </h2>
+          <p className="text-light-text-secondary dark:text-dark-text-secondary mt-2">
+            Analyze attendance trends and generate insights
+          </p>
+        </div>
         <button
           onClick={handleExport}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-light-accent to-blue-600 dark:from-dark-accent dark:to-purple-600 text-white rounded-lg font-medium shadow hover:scale-105 hover:shadow-xl transition-all"
+          className="flex items-center gap-2 px-4 py-2 bg-light-accent dark:bg-dark-accent text-white rounded-lg hover:bg-light-accent-hover dark:hover:bg-dark-accent-hover transition-all duration-200 hover:scale-105"
         >
           <Download className="w-4 h-4" /> Export CSV
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-        <div className="bg-gradient-to-r from-green-500 to-green-600 dark:from-green-600 dark:to-green-700 rounded-xl p-6 text-white shadow-lg">
-          <h3 className="text-lg font-semibold mb-2">Total Present</h3>
-          <p className="text-3xl font-bold">245</p>
-          <p className="text-sm opacity-90">This week</p>
-        </div>
-        <div className="bg-gradient-to-r from-red-500 to-red-600 dark:from-red-600 dark:to-red-700 rounded-xl p-6 text-white shadow-lg">
-          <h3 className="text-lg font-semibold mb-2">Total Absent</h3>
-          <p className="text-3xl font-bold">55</p>
-          <p className="text-sm opacity-90">This week</p>
-        </div>
-        <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 dark:from-yellow-600 dark:to-yellow-700 rounded-xl p-6 text-white shadow-lg">
-          <h3 className="text-lg font-semibold mb-2">Late Arrivals</h3>
-          <p className="text-3xl font-bold">12</p>
-          <p className="text-sm opacity-90">This week</p>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        {enhancedStats.map((stat) => (
+          <div
+            key={stat.label}
+            className="group bg-white dark:bg-dark-card rounded-xl shadow-lg p-6 border border-light-border dark:border-dark-border transition-all duration-300 hover:-translate-y-2 hover:shadow-xl hover:shadow-green-600/20 cursor-pointer relative overflow-hidden"
+          >
+            <div className={`absolute inset-0 bg-gradient-to-br from-${stat.color}-50/50 to-transparent dark:from-${stat.color}-900/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300`} />
+            <div className="relative z-10">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-light-hover dark:bg-dark-hover rounded-lg">
+                    {stat.icon}
+                  </div>
+                  <h3 className="text-lg font-semibold text-light-text dark:text-dark-text">
+                    {stat.label}
+                  </h3>
+                </div>
+                <TrendingUp className="w-4 h-4 text-green-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              </div>
+              <p className="text-3xl font-bold text-light-accent dark:text-dark-accent mb-2">
+                {stat.value}
+              </p>
+              <p className="text-sm text-light-text-secondary dark:text-dark-text-secondary mb-2">
+                {stat.description}
+              </p>
+              <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
+                <Activity className="w-3 h-3" />
+                {stat.trend}
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="bg-white dark:bg-dark-card rounded-xl shadow-lg p-6 border border-light-border dark:border-dark-border">
@@ -110,4 +162,4 @@ export default function Reports() {
       </div>
     </div>
   );
-} 
+}
