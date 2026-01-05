@@ -22,3 +22,22 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Test files
+*-test.cjs
+*-test.js
+test-*.cjs
+test-*.js
+quick-test.cjs
+aggressive-test.cjs
+tcp-test.cjs
+tcp-zklib-test.cjs
+zkdevice-test.js
+
+# Data files
+attendance_*.json
+get-attendance.cjs
+view-attendance.cjs
+
+# SDK files (large binary files)
+ZKFingerSDK_Windows_Standard/
