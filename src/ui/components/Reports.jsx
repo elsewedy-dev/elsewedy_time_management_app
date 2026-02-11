@@ -1,25 +1,49 @@
-import React, { useState } from "react";
-import { Download, Users, UserX, Clock, Activity, TrendingUp } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Download, Users, UserX, Clock, Activity, TrendingUp, AlertCircle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-
-const mockData = [
-  { name: "Mon", present: 45, absent: 5, late: 3 },
-  { name: "Tue", present: 42, absent: 8, late: 2 },
-  { name: "Wed", present: 48, absent: 2, late: 1 },
-  { name: "Thu", present: 44, absent: 6, late: 4 },
-  { name: "Fri", present: 46, absent: 4, late: 2 },
-  { name: "Sat", present: 20, absent: 30, late: 0 },
-  { name: "Sun", present: 0, absent: 50, late: 0 },
-];
+import apiService from "../../services/api";
 
 export default function Reports() {
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [reportType, setReportType] = useState("attendance");
+  const [reportData, setReportData] = useState([]);
+  const [weeklyStats, setWeeklyStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetchReportData();
+  }, []);
+
+  async function fetchReportData() {
+    try {
+      setLoading(true);
+      setError(null);
+      // Try to fetch weekly attendance data from backend
+      const response = await apiService.getWeeklyAttendance();
+      if (response && response.data) {
+        setReportData(response.data);
+        setWeeklyStats(response.summary);
+      }
+    } catch (err) {
+      console.error('Failed to fetch report data:', err);
+      setError('Unable to connect to backend server');
+      setReportData([]);
+      setWeeklyStats(null);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   function handleExport() {
+    if (!reportData || reportData.length === 0) {
+      alert('No data available to export');
+      return;
+    }
+    
     const csvContent = "data:text/csv;charset=utf-8," + 
       "Date,Present,Absent,Late\n" +
-      mockData.map(row => `${row.name},${row.present},${row.absent},${row.late}`).join("\n");
+      reportData.map(row => `${row.name},${row.present},${row.absent},${row.late}`).join("\n");
     
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -30,11 +54,10 @@ export default function Reports() {
     document.body.removeChild(link);
   }
 
-  // Enhanced stats with icons, descriptions, and "This week" retained
-  const enhancedStats = [
+  const enhancedStats = weeklyStats ? [
     {
       label: "Total Present",
-      value: 245,
+      value: weeklyStats.totalPresent || 0,
       icon: <Users className="w-6 h-6 text-green-500" />,
       description: "Employees present this week",
       trend: "This week",
@@ -42,7 +65,7 @@ export default function Reports() {
     },
     {
       label: "Total Absent",
-      value: 55,
+      value: weeklyStats.totalAbsent || 0,
       icon: <UserX className="w-6 h-6 text-red-500" />,
       description: "Employees absent this week",
       trend: "This week",
@@ -50,13 +73,13 @@ export default function Reports() {
     },
     {
       label: "Late Arrivals",
-      value: 12,
+      value: weeklyStats.totalLate || 0,
       icon: <Clock className="w-6 h-6 text-yellow-500" />,
       description: "Late arrivals this week",
       trend: "This week",
       color: "yellow"
     }
-  ];
+  ] : [];
 
   return (
     <div className="w-full space-y-8">
@@ -72,14 +95,33 @@ export default function Reports() {
         </div>
         <button
           onClick={handleExport}
-          className="flex items-center gap-2 px-4 py-2 bg-light-accent dark:bg-dark-accent text-white rounded-lg hover:bg-light-accent-hover dark:hover:bg-dark-accent-hover transition-all duration-200 hover:scale-105"
+          disabled={loading || error || reportData.length === 0}
+          className="flex items-center gap-2 px-4 py-2 bg-light-accent dark:bg-dark-accent text-white rounded-lg hover:bg-light-accent-hover dark:hover:bg-dark-accent-hover transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Download className="w-4 h-4" /> Export CSV
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        {enhancedStats.map((stat) => (
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500" />
+          <div>
+            <p className="text-red-800 dark:text-red-200 font-medium">Backend Connection Error</p>
+            <p className="text-red-600 dark:text-red-300 text-sm">{error}</p>
+          </div>
+        </div>
+      )}
+
+      {loading && (
+        <div className="text-center py-12">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-light-accent dark:border-dark-accent"></div>
+          <p className="mt-4 text-light-text-secondary dark:text-dark-text-secondary">Loading report data...</p>
+        </div>
+      )}
+
+      {!loading && !error && enhancedStats.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          {enhancedStats.map((stat) => (
           <div
             key={stat.label}
             className="group bg-white dark:bg-dark-card rounded-xl shadow-lg p-6 border border-light-border dark:border-dark-border transition-all duration-300 hover:-translate-y-2 hover:shadow-xl hover:shadow-green-600/20 cursor-pointer relative overflow-hidden"
@@ -111,8 +153,10 @@ export default function Reports() {
           </div>
         ))}
       </div>
+      )}
 
-      <div className="bg-white dark:bg-dark-card rounded-xl shadow-lg p-6 border border-light-border dark:border-dark-border">
+      {!loading && !error && reportData.length > 0 && (
+        <div className="bg-white dark:bg-dark-card rounded-xl shadow-lg p-6 border border-light-border dark:border-dark-border">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
           <h3 className="text-xl font-semibold text-light-text dark:text-dark-text">Weekly Attendance Overview</h3>
           <div className="flex gap-4">
@@ -143,7 +187,7 @@ export default function Reports() {
         </div>
         
         <ResponsiveContainer width="100%" height={400}>
-          <BarChart data={mockData}>
+          <BarChart data={reportData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis dataKey="name" stroke="#64748b" />
             <YAxis stroke="#64748b" />
@@ -160,6 +204,17 @@ export default function Reports() {
           </BarChart>
         </ResponsiveContainer>
       </div>
+      )}
+
+      {!loading && !error && reportData.length === 0 && (
+        <div className="bg-white dark:bg-dark-card rounded-xl shadow-lg p-12 border border-light-border dark:border-dark-border text-center">
+          <Activity className="w-16 h-16 text-light-text-secondary dark:text-dark-text-secondary mx-auto mb-4 opacity-50" />
+          <h3 className="text-xl font-semibold text-light-text dark:text-dark-text mb-2">No Report Data Available</h3>
+          <p className="text-light-text-secondary dark:text-dark-text-secondary">
+            There is no attendance data to display. Please ensure the backend is running and employees have checked in.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

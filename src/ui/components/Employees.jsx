@@ -1,21 +1,65 @@
-import React, { useState } from "react";
-import { Plus, Edit, Trash2, CheckCircle, XCircle } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Plus, Edit, Trash2, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import apiService from "../../services/api";
 
-const initialEmployees = [
-  { id: 1, name: "Abel Mekonnen", empId: "EMP102", department: "HR", status: "active" },
-  { id: 2, name: "Sara Bekele", empId: "EMP103", department: "Production", status: "inactive" },
-  { id: 3, name: "Samuel Gashaw", empId: "EMP104", department: "IT", status: "active" },
-];
-
-const departments = ["HR", "Production", "IT", "Finance", "Logistics"];
+const departments = ["Production", "Quality Control", "Maintenance", "Human Resources", "Finance", "IT"];
 
 export default function Employees() {
-  const [employees, setEmployees] = useState(initialEmployees);
+  const [employees, setEmployees] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editEmployee, setEditEmployee] = useState(null);
   const [search, setSearch] = useState("");
   const [filterDept, setFilterDept] = useState("");
   const [form, setForm] = useState({ name: "", empId: "", department: departments[0], status: "active" });
+
+  // Fetch employees from API
+  useEffect(() => {
+    fetchEmployees();
+  }, []);
+
+  async function fetchEmployees() {
+    try {
+      setLoading(true);
+      const response = await apiService.getEmployees();
+      if (response.success && response.data) {
+        const formattedEmployees = response.data.map(emp => ({
+          id: emp.id,
+          name: `${emp.firstName} ${emp.lastName}`,
+          empId: emp.employeeId,
+          department: emp.department?.name || "N/A",
+          status: emp.isActive ? "active" : "inactive",
+          isActive: emp.isActive
+        }));
+        setEmployees(formattedEmployees);
+      }
+    } catch (error) {
+      console.error("Failed to fetch employees:", error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function toggleEmployeeStatus(emp) {
+    try {
+      const newStatus = !emp.isActive;
+      const response = await apiService.updateEmployee(emp.id, { isActive: newStatus });
+      
+      if (response.success) {
+        // Update local state
+        setEmployees(emps =>
+          emps.map(e =>
+            e.id === emp.id ? { ...e, status: newStatus ? "active" : "inactive", isActive: newStatus } : e
+          )
+        );
+      } else {
+        alert('Failed to update employee status');
+      }
+    } catch (error) {
+      console.error("Failed to toggle employee status:", error);
+      alert('Failed to update employee status');
+    }
+  }
 
   function openAddModal() {
     setEditEmployee(null);
@@ -75,58 +119,79 @@ export default function Employees() {
             <option value="">All Departments</option>
             {departments.map(d => <option key={d}>{d}</option>)}
           </select>
-          <button
-            onClick={openAddModal}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-light-accent to-blue-600 dark:from-dark-accent dark:to-purple-600 text-white rounded-lg font-medium shadow hover:scale-105 hover:shadow-xl transition-all"
-          >
-            <Plus className="w-4 h-4" /> Add Employee
-          </button>
         </div>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full">
           <thead className="bg-light-accent/5 dark:bg-dark-accent/5">
             <tr>
-              <th className="px-4 py-3 text-left text-sm font-semibold text-light-text dark:text-dark-text border-b border-light-border dark:border-dark-border">Name</th>
               <th className="px-4 py-3 text-left text-sm font-semibold text-light-text dark:text-dark-text border-b border-light-border dark:border-dark-border">Employee ID</th>
+              <th className="px-4 py-3 text-left text-sm font-semibold text-light-text dark:text-dark-text border-b border-light-border dark:border-dark-border">Name</th>
               <th className="px-4 py-3 text-left text-sm font-semibold text-light-text dark:text-dark-text border-b border-light-border dark:border-dark-border">Department</th>
               <th className="px-4 py-3 text-left text-sm font-semibold text-light-text dark:text-dark-text border-b border-light-border dark:border-dark-border">Status</th>
               <th className="px-4 py-3 text-left text-sm font-semibold text-light-text dark:text-dark-text border-b border-light-border dark:border-dark-border">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map(emp => (
-              <tr key={emp.id} className="hover:bg-light-accent/10 dark:hover:bg-dark-accent/10 transition-colors duration-200">
-                <td className="px-4 py-3 font-medium text-light-text dark:text-dark-text">{emp.name}</td>
-                <td className="px-4 py-3 text-light-textSecondary dark:text-dark-textSecondary">{emp.empId}</td>
-                <td className="px-4 py-3 text-light-textSecondary dark:text-dark-textSecondary">{emp.department}</td>
-                <td className="px-4 py-3">
-                  {emp.status === "active" ? (
-                    <span className="flex items-center gap-1 text-green-600 dark:text-green-400 font-semibold">
-                      <CheckCircle className="w-4 h-4" /> Active
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1 text-red-500 dark:text-red-400 font-semibold">
-                      <XCircle className="w-4 h-4" /> Inactive
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3 flex gap-2">
-                  <button
-                    onClick={() => openEditModal(emp)}
-                    className="flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-light-accent to-blue-600 dark:from-dark-accent dark:to-purple-600 text-white rounded shadow hover:scale-105 hover:shadow-lg transition-all text-xs"
-                  >
-                    <Edit className="w-4 h-4" /> Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(emp.id)}
-                    className="flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-red-500 to-red-600 text-white rounded shadow hover:scale-105 hover:shadow-lg transition-all text-xs"
-                  >
-                    <Trash2 className="w-4 h-4" /> Delete
-                  </button>
+            {loading ? (
+              <tr>
+                <td colSpan="5" className="px-4 py-8 text-center">
+                  <div className="flex items-center justify-center gap-2 text-light-textSecondary dark:text-dark-textSecondary">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>Loading employees...</span>
+                  </div>
                 </td>
               </tr>
-            ))}
+            ) : filtered.length === 0 ? (
+              <tr>
+                <td colSpan="5" className="px-4 py-8 text-center text-light-textSecondary dark:text-dark-textSecondary">
+                  No employees found
+                </td>
+              </tr>
+            ) : (
+              filtered.map(emp => (
+                <tr key={emp.id} className="hover:bg-light-accent/10 dark:hover:bg-dark-accent/10 transition-colors duration-200">
+                  <td className="px-4 py-3 text-light-textSecondary dark:text-dark-textSecondary">{emp.empId}</td>
+                  <td className="px-4 py-3 font-medium text-light-text dark:text-dark-text">{emp.name}</td>
+                  <td className="px-4 py-3 text-light-textSecondary dark:text-dark-textSecondary">{emp.department}</td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => toggleEmployeeStatus(emp)}
+                      className={`flex items-center gap-1 px-3 py-1 rounded-full font-semibold text-xs transition-all hover:scale-105 ${
+                        emp.status === "active"
+                          ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50"
+                          : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50"
+                      }`}
+                      title={`Click to ${emp.status === "active" ? "deactivate" : "activate"}`}
+                    >
+                      {emp.status === "active" ? (
+                        <>
+                          <CheckCircle className="w-4 h-4" /> Active
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="w-4 h-4" /> Inactive
+                        </>
+                      )}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 flex gap-2">
+                    <button
+                      onClick={() => openEditModal(emp)}
+                      className="flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-light-accent to-blue-600 dark:from-dark-accent dark:to-purple-600 text-white rounded shadow hover:scale-105 hover:shadow-lg transition-all text-xs"
+                    >
+                      <Edit className="w-4 h-4" /> Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(emp.id)}
+                      className="flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-red-500 to-red-600 text-white rounded shadow hover:scale-105 hover:shadow-lg transition-all text-xs"
+                    >
+                      <Trash2 className="w-4 h-4" /> Delete
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

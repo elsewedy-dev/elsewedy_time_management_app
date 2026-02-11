@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  elsewedy-backend:
+    build: .
+    container_name: elsewedy-attendance-backend
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      # Persist database and logs
+      - ./database:/app/database
+      - ./logs:/app/logs
+      - ./exports:/app/exports
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOST=0.0.0.0
+      - DB_PATH=/app/database/attendance.db
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=24h
+      # ZKTeco Device Configuration
+      - ZK_DEVICE_IP=${ZK_DEVICE_IP}
+      - ZK_DEVICE_PORT=${ZK_DEVICE_PORT}
+      - ZK_DEVICE_PASSWORD=${ZK_DEVICE_PASSWORD}
+      - XFACE_DEVICE_IP=${XFACE_DEVICE_IP}
+      - XFACE_DEVICE_PORT=${XFACE_DEVICE_PORT}
+      - XFACE_DEVICE_PASSWORD=${XFACE_DEVICE_PASSWORD}
+      # Attendance Settings
+      - WORK_START_TIME=08:00
+      - WORK_END_TIME=17:00
+      - LATE_THRESHOLD_MINUTES=15
+      - OVERTIME_THRESHOLD_MINUTES=30
+      # Logging
+      - LOG_LEVEL=info
+      - LOG_FILE=/app/logs/app.log
+      # CORS
+      - CORS_ORIGIN=${CORS_ORIGIN}
+    networks:
+      - elsewedy-network
+
+networks:
+  elsewedy-network:
+    driver: bridge
+
+volumes:
+  database:
+  logs:
+  exports:

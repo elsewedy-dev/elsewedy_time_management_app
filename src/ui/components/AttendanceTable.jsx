@@ -38,8 +38,8 @@ export default function AttendanceTable({ data, loading, isDark }) {
               >
                 <td className="px-4 py-3 whitespace-nowrap font-medium text-light-text dark:text-dark-text">{row.name}</td>
                 <td className="px-4 py-3 whitespace-nowrap text-light-textSecondary dark:text-dark-textSecondary">{row.id}</td>
-                <td className="px-4 py-3 whitespace-nowrap text-light-textSecondary dark:text-dark-textSecondary">{row.inTime ? new Date(row.inTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}</td>
-                <td className="px-4 py-3 whitespace-nowrap text-light-textSecondary dark:text-dark-textSecondary">{row.outTime ? new Date(row.outTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--'}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-light-textSecondary dark:text-dark-textSecondary">{row.inTime}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-light-textSecondary dark:text-dark-textSecondary">{row.outTime}</td>
                 <td className="px-4 py-3 whitespace-nowrap">
                   <span
                     className={`px-2 py-1 rounded-full text-xs font-semibold ${

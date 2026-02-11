@@ -8,6 +8,8 @@ import Employees from "./ui/components/Employees";
 import Devices from "./ui/components/Devices";
 import Reports from "./ui/components/Reports";
 import Settings from "./ui/components/Settings";
+import { useTodayAttendance, useEmployees, useDeviceStats } from "./hooks/useApi";
+import apiService from "./services/api";
 import { 
   LayoutDashboard, 
   Users, 
@@ -18,37 +20,12 @@ import {
 } from "lucide-react";
 
 const initialStats = [
-  { label: "Total Employees", value: 127 },
-  { label: "Present Today", value: 113 },
-  { label: "Absent", value: 14 },
+  { label: "Total Employees", value: 0 },
+  { label: "Present Today", value: 0 },
+  { label: "Absent", value: 0 },
 ];
 
-const initialAttendanceData = [
-  {
-    name: "Abel Mekonnen",
-    id: "EMP102",
-    inTime: "2024-07-31T08:12:00",
-    outTime: "2024-07-31T17:01:00",
-    status: "In",
-    method: "Face",
-  },
-  {
-    name: "Sara Bekele",
-    id: "EMP103",
-    inTime: "2024-07-31T08:27:00",
-    outTime: null,
-    status: "Out",
-    method: "Fingerprint",
-  },
-  {
-    name: "Samuel Gashaw",
-    id: "EMP104",
-    inTime: "2024-07-31T08:10:00",
-    outTime: "2024-07-31T17:15:00",
-    status: "In",
-    method: "Face",
-  },
-];
+const initialAttendanceData = [];
 
 const shortcuts = [
   { description: "Toggle Sidebar", keys: "Ctrl + S" },
@@ -83,16 +60,73 @@ function exportToCSV(data) {
 export default function App() {
   // For Electron desktop app, start with sidebar closed for better UX
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [stats, setStats] = useState(initialStats);
-  const [attendance] = useState(initialAttendanceData);
-  const [loading] = useState(false);
-  const [filters, setFilters] = useState({ date: "", name: "", type: "", onExport: handleExport });
   const [isDark, setIsDark] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [page, setPage] = useState("dashboard");
+  const [syncing, setSyncing] = useState(false);
+  
+  // API hooks
+  const { data: todayAttendance, loading: attendanceLoading, error: attendanceError } = useTodayAttendance();
+  const { data: employees, loading: employeesLoading } = useEmployees();
+  const { data: deviceStats, loading: deviceLoading } = useDeviceStats();
+  
+  // Derived state from API data
+  const [stats, setStats] = useState(initialStats);
+  const [attendance, setAttendance] = useState(initialAttendanceData);
+  const [loading, setLoading] = useState(false);
+  const [filters, setFilters] = useState({ date: "", name: "", type: "", onExport: handleExport });
 
   function handleExport() {
     exportToCSV(filteredData);
+  }
+
+  async function handleSyncLogs() {
+    if (syncing) return;
+    
+    setSyncing(true);
+    try {
+      const results = await apiService.syncAllDevices();
+      
+      // Check if any sync had errors
+      const hasErrors = results.some(r => r.error);
+      
+      if (hasErrors) {
+        const errorDevices = results.filter(r => r.error);
+        alert(`Sync completed with errors:\n${errorDevices.map(r => r.error).join('\n')}`);
+      } else {
+        // Show success message with details if available
+        const successResults = results.filter(r => r.success && r.data);
+        if (successResults.length > 0 && successResults[0].data?.userSync) {
+          const userSync = successResults[0].data.userSync;
+          alert(`Sync completed!\n\nNew employees: ${userSync.created}\nUpdated: ${userSync.updated}\nAttendance logs synced successfully`);
+        }
+      }
+      
+      // Refresh attendance data after sync
+      window.location.reload();
+    } catch (error) {
+      console.error('Sync failed:', error);
+      alert('Failed to sync logs. Please try again.');
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function handleResetToday() {
+    if (!confirm('Are you sure you want to clear all attendance records for today? This cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      const response = await apiService.resetTodayAttendance();
+      if (response.success) {
+        alert(`Successfully reset today's attendance (${response.data.deletedCount} records cleared)`);
+        window.location.reload();
+      }
+    } catch (error) {
+      console.error('Reset failed:', error);
+      alert('Failed to reset attendance. Please try again.');
+    }
   }
 
   // Theme management
@@ -107,6 +141,68 @@ export default function App() {
       document.documentElement.classList.remove('dark');
     }
   }, []);
+
+  // Update stats when API data is received
+  useEffect(() => {
+    if (todayAttendance && todayAttendance.data && todayAttendance.data.summary) {
+      const { totalEmployees, present, absent } = todayAttendance.data.summary;
+      
+      setStats([
+        { label: "Total Employees", value: totalEmployees || 0 },
+        { label: "Present Today", value: present || 0 },
+        { label: "Absent", value: absent || 0 },
+      ]);
+    } else if (attendanceError) {
+      // Keep stats at 0 when there's an error
+      setStats([
+        { label: "Total Employees", value: 0 },
+        { label: "Present Today", value: 0 },
+        { label: "Absent", value: 0 },
+      ]);
+    }
+  }, [todayAttendance, attendanceError]);
+
+  // Update attendance data when API data is received
+  useEffect(() => {
+    if (todayAttendance && todayAttendance.data) {
+      // Handle both array and object with attendance array
+      const attendanceArray = Array.isArray(todayAttendance.data) 
+        ? todayAttendance.data 
+        : todayAttendance.data.attendance || [];
+      
+      const formattedAttendance = attendanceArray.map(record => {
+        // Helper function to safely format time
+        const formatTime = (timeString) => {
+          if (!timeString) return '--';
+          try {
+            const date = new Date(timeString);
+            if (isNaN(date.getTime())) return '--';
+            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+          } catch (error) {
+            console.error('Error formatting time:', error);
+            return '--';
+          }
+        };
+
+        return {
+          name: `${record.employee.firstName} ${record.employee.lastName}`,
+          id: record.employee.employeeId,
+          inTime: formatTime(record.checkInTime),
+          outTime: formatTime(record.checkOutTime),
+          status: record.status === 'present' ? 'In' : 'Out',
+          method: record.verificationMethod === 'face' ? 'Face' : 
+                  record.verificationMethod === 'fingerprint' ? 'Fingerprint' : 
+                  record.verificationMethod || 'Manual',
+        };
+      });
+      setAttendance(formattedAttendance);
+    }
+  }, [todayAttendance]);
+
+  // Update loading state
+  useEffect(() => {
+    setLoading(attendanceLoading || employeesLoading || deviceLoading);
+  }, [attendanceLoading, employeesLoading, deviceLoading]);
 
   const toggleTheme = () => {
     const newTheme = !isDark;
@@ -148,7 +244,7 @@ export default function App() {
             break;
           case 'r':
             e.preventDefault();
-            // Trigger sync
+            handleSyncLogs();
             break;
         }
       }
@@ -172,7 +268,7 @@ export default function App() {
     { name: "Dashboard", icon: <LayoutDashboard className="w-5 h-5" />, key: "dashboard", active: page === "dashboard" },
     { name: "Employees", icon: <Users className="w-5 h-5" />, key: "employees", active: page === "employees" },
     { name: "Devices", icon: <Monitor className="w-5 h-5" />, key: "devices", active: page === "devices" },
-    { name: "Reports", icon: <BarChart3 className="w-5 h-5" />, key: "reports", active: page === "reports" },
+    // { name: "Reports", icon: <BarChart3 className="w-5 h-5" />, key: "reports", active: page === "reports" },
     { name: "Settings", icon: <SettingsIcon className="w-5 h-5" />, key: "settings", active: page === "settings" },
     { name: "About", icon: <Info className="w-5 h-5" />, key: "about", active: page === "about" },
   ];
@@ -195,6 +291,8 @@ export default function App() {
           isDark={isDark}
           toggleTheme={toggleTheme}
           onShowShortcuts={() => setShowShortcuts(true)}
+          onSyncLogs={handleSyncLogs}
+          syncing={syncing}
         />
         {/* Main dashboard content */}
         <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-8 w-full flex flex-col gap-8">
@@ -208,13 +306,14 @@ export default function App() {
               filteredData={filteredData} 
               loading={loading}
               onExport={handleExport}
+              onReset={handleResetToday}
             />
           )}
           {page === "about" && <About isDark={isDark} />}
           {page === "employees" && <Employees />}
           {page === "devices" && <Devices />}
-          {page === "reports" && <Reports />}
-          {page === "settings" && <Settings />}
+          {/* {page === "reports" && <Reports />} */}
+          {page === "settings" && <Settings isDark={isDark} toggleTheme={toggleTheme} />}
         </main>
       </div>
       {/* Keyboard Shortcuts Modal */}
