@@ -3,6 +3,7 @@ import Sidebar from "./ui/components/Sidebar";
 import Header from "./ui/components/Header";
 import Dashboard from "./ui/components/Dashboard";
 import KeyboardShortcuts from "./ui/components/KeyboardShortcuts";
+import SyncModal from "./ui/components/SyncModal";
 import About from "./ui/components/About";
 import Employees from "./ui/components/Employees";
 import Devices from "./ui/components/Devices";
@@ -62,6 +63,8 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isDark, setIsDark] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
   const [page, setPage] = useState("dashboard");
   const [syncing, setSyncing] = useState(false);
   
@@ -92,24 +95,51 @@ export default function App() {
       
       if (hasErrors) {
         const errorDevices = results.filter(r => r.error);
-        alert(`Sync completed with errors:\n${errorDevices.map(r => r.error).join('\n')}`);
+        setSyncResult({
+          hasErrors: true,
+          errors: errorDevices.map(r => r.error)
+        });
       } else {
         // Show success message with details if available
         const successResults = results.filter(r => r.success && r.data);
         if (successResults.length > 0 && successResults[0].data?.userSync) {
           const userSync = successResults[0].data.userSync;
-          alert(`Sync completed!\n\nNew employees: ${userSync.created}\nUpdated: ${userSync.updated}\nAttendance logs synced successfully`);
+          setSyncResult({
+            hasErrors: false,
+            userSync: {
+              created: userSync.created,
+              updated: userSync.updated
+            }
+          });
+        } else {
+          setSyncResult({
+            hasErrors: false,
+            userSync: {
+              created: 0,
+              updated: 0
+            }
+          });
         }
       }
       
-      // Refresh attendance data after sync
-      window.location.reload();
+      setShowSyncModal(true);
+      
     } catch (error) {
       console.error('Sync failed:', error);
-      alert('Failed to sync logs. Please try again.');
+      setSyncResult({
+        hasErrors: true,
+        errors: ['Failed to sync logs. Please try again.']
+      });
+      setShowSyncModal(true);
     } finally {
       setSyncing(false);
     }
+  }
+
+  function handleCloseSyncModal() {
+    setShowSyncModal(false);
+    // Reload page after modal is closed to show updated data
+    window.location.reload();
   }
 
   async function handleResetToday() {
@@ -321,6 +351,13 @@ export default function App() {
         isVisible={showShortcuts}
         onClose={() => setShowShortcuts(false)}
         shortcuts={shortcuts}
+        isDark={isDark}
+      />
+      {/* Sync Results Modal */}
+      <SyncModal
+        isOpen={showSyncModal}
+        onClose={handleCloseSyncModal}
+        syncResult={syncResult}
         isDark={isDark}
       />
       </div>
