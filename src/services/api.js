@@ -1,5 +1,5 @@
 // API service for connecting React frontend to backend
-const API_BASE_URL = 'http://localhost:3001/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 class ApiService {
   constructor() {
@@ -271,7 +271,8 @@ class ApiService {
 
   // Health check
   async healthCheck() {
-    return await fetch('http://localhost:3001/health').then(res => res.json());
+    const baseUrl = this.baseURL.replace('/api', '');
+    return await fetch(`${baseUrl}/health`).then(res => res.json());
   }
 }
 
