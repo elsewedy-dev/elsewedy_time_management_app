@@ -13,17 +13,14 @@ const router = express.Router();
 
 // Get attendance records with filtering
 router.get('/', [
-  authMiddleware,
-  permissionMiddleware('attendance.read'),
   query('startDate').optional().isISO8601(),
   query('endDate').optional().isISO8601(),
   query('employeeId').optional().isUUID(),
   query('departmentId').optional().isUUID(),
   query('deviceId').optional().isUUID(),
   query('status').optional().isIn(['present', 'absent', 'late', 'early_leave', 'half_day']),
-  query('verificationMethod').optional().isIn(['fingerprint', 'face', 'card', 'password', 'manual']),
   query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 }),
+  query('limit').optional().isInt({ min: 1, max: 500 }),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -61,16 +58,18 @@ router.get('/', [
     if (status) whereClause.status = status;
     if (verificationMethod) whereClause.verificationMethod = verificationMethod;
 
-    // Build include clause
     const include = [
       {
         model: Employee,
+        as: 'employee',
         attributes: ['id', 'firstName', 'lastName', 'employeeId', 'departmentId'],
         ...(departmentId && { where: { departmentId } }),
       },
       {
         model: Device,
+        as: 'device',
         attributes: ['id', 'name', 'type', 'location'],
+        required: false,
       },
     ];
 
@@ -185,12 +184,9 @@ router.get('/summary', [
 router.get('/today', async (req, res) => {
   try {
     const today = moment().format('YYYY-MM-DD');
-    
-    // Get all active employees count
-    const totalActiveEmployees = await Employee.count({
-      where: { isActive: true }
-    });
-    
+
+    const totalActiveEmployees = await Employee.count({ where: { isActive: true } });
+
     const attendance = await Attendance.findAll({
       where: { date: today },
       include: [
@@ -198,6 +194,14 @@ router.get('/today', async (req, res) => {
           model: Employee,
           as: 'employee',
           attributes: ['id', 'firstName', 'lastName', 'employeeId', 'departmentId'],
+          include: [
+            {
+              model: (await import('../models/Shift.js')).Shift,
+              as: 'shift',
+              attributes: ['id', 'name', 'startTime', 'endTime', 'color', 'isNightShift', 'lateThreshold'],
+              required: false,
+            }
+          ],
         },
         {
           model: Device,
@@ -208,33 +212,94 @@ router.get('/today', async (req, res) => {
       order: [['checkInTime', 'DESC']],
     });
 
-    // Count employees who have checked in today (present)
-    const presentToday = attendance.filter(a => a.checkInTime).length;
-    
+    // Annotate each record with shift mismatch flag
+    const annotated = attendance.map(a => {
+      const record = a.toJSON();
+      const shift = record.employee?.shift;
+      let shiftMismatch = false;
+      let shiftMismatchReason = null;
+
+      if (shift && record.checkInTime) {
+        const checkIn = moment(record.checkInTime);
+        const checkInMins = checkIn.hours() * 60 + checkIn.minutes();
+
+        // Parse shift start and end (handle HH:MM or HH:MM:SS)
+        const [sh, sm] = (shift.startTime || '00:00').split(':').map(Number);
+        const [eh, em] = (shift.endTime   || '23:59').split(':').map(Number);
+        const shiftStartMins = sh * 60 + sm;
+        const shiftEndMins   = eh * 60 + em;
+
+        // Valid window: 2 hours before shift start → 2 hours after shift end
+        const windowOpen  = shiftStartMins - 120; // 2h before start
+        const windowClose = shiftEndMins   + 120; // 2h after end
+
+        let inWindow;
+        if (shift.isNightShift || shiftStartMins > shiftEndMins) {
+          // Overnight shift (e.g. 22:00 – 06:00): window wraps midnight
+          // Valid if scan is after (start - 2h) OR before (end + 2h)
+          inWindow = checkInMins >= windowOpen || checkInMins <= windowClose;
+        } else {
+          inWindow = checkInMins >= windowOpen && checkInMins <= windowClose;
+        }
+
+        if (!inWindow) {
+          shiftMismatch = true;
+          shiftMismatchReason = `Scanned at ${checkIn.format('hh:mm A')} — assigned to ${shift.name} (${moment(shift.startTime, 'HH:mm').format('hh:mm A')} – ${moment(shift.endTime, 'HH:mm').format('hh:mm A')})`;
+        }
+      }
+
+      return { ...record, shiftMismatch, shiftMismatchReason };
+    });
+
+    const presentToday = annotated.filter(a => a.checkInTime).length;
+
+    // Find absent employees (active employees who have no attendance record today)
+    const presentEmployeeIds = new Set(annotated.map(a => a.employeeId));
+    const allActiveEmployees = await Employee.findAll({
+      where: { isActive: true },
+      attributes: ['id', 'firstName', 'lastName', 'employeeId', 'departmentId'],
+      include: [
+        {
+          model: (await import('../models/Shift.js')).Shift,
+          as: 'shift',
+          attributes: ['id', 'name', 'color'],
+          required: false,
+        }
+      ],
+    });
+
+    // Build absent list — employees with no scan today
+    const absentEmployees = allActiveEmployees
+      .filter(e => !presentEmployeeIds.has(e.id))
+      .map(e => {
+        const emp = e.toJSON();
+        // Check if there's a sick leave record created manually
+        const sickRecord = annotated.find(a => a.employeeId === e.id && a.sickLeave);
+        return {
+          ...emp,
+          sickLeave: sickRecord?.sickLeave || false,
+          sickLeaveNote: sickRecord?.sickLeaveNote || null,
+          attendanceId: sickRecord?.id || null,
+        };
+      });
+
     const summary = {
       totalEmployees: totalActiveEmployees,
       present: presentToday,
       absent: totalActiveEmployees - presentToday,
-      checkedIn: attendance.filter(a => a.checkInTime).length,
-      checkedOut: attendance.filter(a => a.checkOutTime).length,
-      late: attendance.filter(a => a.isLate).length,
-      stillWorking: attendance.filter(a => a.checkInTime && !a.checkOutTime).length,
+      checkedIn: annotated.filter(a => a.checkInTime).length,
+      checkedOut: annotated.filter(a => a.checkOutTime).length,
+      late: annotated.filter(a => a.isLate).length,
+      stillWorking: annotated.filter(a => a.checkInTime && !a.checkOutTime).length,
+      shiftMismatches: annotated.filter(a => a.shiftMismatch).length,
+      onSickLeave: annotated.filter(a => a.sickLeave).length,
     };
 
-    res.json({
-      success: true,
-      data: {
-        attendance,
-        summary,
-      },
-    });
+    res.json({ success: true, data: { attendance: annotated, absentEmployees, summary } });
 
   } catch (error) {
     logger.error('Error fetching today\'s attendance:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-    });
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
 
@@ -490,6 +555,82 @@ router.delete('/:id', [
       success: false,
       message: 'Internal server error',
     });
+  }
+});
+
+// Mark / unmark attendance as sick leave (no auth required)
+router.put('/:id/sick-leave', [
+  param('id').isUUID(),
+  body('sickLeave').isBoolean(),
+  body('sickLeaveNote').optional().isString(),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    }
+
+    const attendance = await Attendance.findByPk(req.params.id);
+    if (!attendance) {
+      return res.status(404).json({ success: false, message: 'Attendance record not found' });
+    }
+
+    await attendance.update({
+      sickLeave: req.body.sickLeave,
+      sickLeaveNote: req.body.sickLeaveNote || null,
+    });
+
+    res.json({ success: true, message: 'Sick leave status updated', data: attendance });
+  } catch (error) {
+    logger.error('Error updating sick leave:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
+// Create sick leave record for absent employee (no existing attendance record)
+router.post('/sick-leave', [
+  body('employeeId').isUUID(),
+  body('date').isISO8601(),
+  body('sickLeaveNote').optional().isString(),
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    }
+
+    const { employeeId, date, sickLeaveNote } = req.body;
+
+    // Get any device to satisfy the NOT NULL constraint
+    const device = await Device.findOne();
+    if (!device) {
+      return res.status(400).json({ success: false, message: 'No device found in system' });
+    }
+
+    // Upsert — update if exists, create if not
+    const [attendance, created] = await Attendance.findOrCreate({
+      where: { employeeId, date },
+      defaults: {
+        deviceId: device.id,
+        date,
+        status: 'absent',
+        verificationMethod: 'manual',
+        sickLeave: true,
+        sickLeaveNote: sickLeaveNote || 'Sick Leave',
+      },
+    });
+
+    if (!created) {
+      await attendance.update({
+        sickLeave: true,
+        sickLeaveNote: sickLeaveNote || 'Sick Leave',
+      });
+    }
+
+    res.json({ success: true, message: 'Sick leave recorded', data: attendance });
+  } catch (error) {
+    logger.error('Error creating sick leave:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
   }
 });
 

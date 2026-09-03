@@ -26,6 +26,132 @@ if (!fs.existsSync(exportsDir)) {
   fs.mkdirSync(exportsDir, { recursive: true });
 }
 
+// Export daily attendance as Excel — no auth required
+router.get('/daily/export', [
+  query('date').optional().isISO8601(),
+  query('departmentId').optional().isUUID(),
+], async (req, res) => {
+  try {
+    const date = req.query.date || moment().format('YYYY-MM-DD');
+    const { departmentId } = req.query;
+    const reportDate = moment(date).format('YYYY-MM-DD');
+
+    const include = [
+      {
+        model: Employee,
+        as: 'employee',
+        attributes: ['id', 'firstName', 'lastName', 'employeeId', 'departmentId'],
+        include: [
+          { model: Department, as: 'department', attributes: ['id', 'name'], required: false },
+          { model: (await import('../models/Shift.js')).Shift, as: 'shift', attributes: ['id', 'name', 'startTime', 'endTime', 'isNightShift'], required: false },
+        ],
+        ...(departmentId && { where: { departmentId } }),
+      },
+      { model: Device, as: 'device', attributes: ['id', 'name'], required: false },
+    ];
+
+    const attendance = await Attendance.findAll({
+      where: { date: reportDate },
+      include,
+      order: [['checkInTime', 'ASC']],
+    });
+
+    // Summary row data
+    const present  = attendance.filter(a => a.status === 'present' || a.status === 'half_day').length;
+    const absent   = attendance.filter(a => a.status === 'absent').length;
+    const late     = attendance.filter(a => a.isLate).length;
+    const rate     = attendance.length > 0 ? ((present / attendance.length) * 100).toFixed(1) : '0.0';
+
+    // Build Excel rows
+    const rows = attendance.map((a, i) => {
+      // Detect shift mismatch
+      const shift = a.employee?.shift;
+      let shiftMismatch = 'No';
+      let shiftMismatchNote = '';
+      if (shift && a.checkInTime) {
+        const checkInMins = moment(a.checkInTime).hours() * 60 + moment(a.checkInTime).minutes();
+        const [sh, sm] = (shift.startTime || '00:00').split(':').map(Number);
+        const [eh, em] = (shift.endTime   || '23:59').split(':').map(Number);
+        const windowOpen  = sh * 60 + sm - 120;
+        const windowClose = eh * 60 + em + 120;
+        const inWindow = (shift.isNightShift || sh * 60 + sm > eh * 60 + em)
+          ? (checkInMins >= windowOpen || checkInMins <= windowClose)
+          : (checkInMins >= windowOpen && checkInMins <= windowClose);
+        if (!inWindow) {
+          shiftMismatch = 'YES - FLAGGED';
+          shiftMismatchNote = `Scanned at ${moment(a.checkInTime).format('hh:mm A')} — assigned to ${shift.name} (${moment(shift.startTime, 'HH:mm').format('hh:mm A')} – ${moment(shift.endTime, 'HH:mm').format('hh:mm A')})`;
+        }
+      }
+
+      return {
+        '#':                  i + 1,
+        'Employee ID':        a.employee?.employeeId || '--',
+        'Name':               `${a.employee?.firstName || ''} ${a.employee?.lastName || ''}`.trim(),
+        'Department':         a.employee?.department?.name || 'N/A',
+        'Assigned Shift':     shift?.name || 'Not Assigned',
+        'Shift Hours':        shift ? `${shift.startTime?.slice(0,5)}–${shift.endTime?.slice(0,5)}` : '--',
+        'Sick Leave':         a.sickLeave ? 'YES - SICK LEAVE' : '',
+        'Sick Leave Note':    a.sickLeaveNote || '',
+        'Shift Mismatch':     shiftMismatch,
+        'Mismatch Note':      shiftMismatchNote,
+        'Date':               reportDate,
+        'Check In':           a.checkInTime  ? moment(a.checkInTime).format('hh:mm A')  : '--',
+        'Check Out':          a.checkOutTime ? moment(a.checkOutTime).format('hh:mm A') : '--',
+        'Working Hours':      a.totalWorkingHours ? Number(a.totalWorkingHours).toFixed(2) : '0.00',
+        'Overtime Hours':     a.overtimeHours     ? Number(a.overtimeHours).toFixed(2)     : '0.00',
+        'Late Minutes':       a.lateMinutes       || 0,
+        'Status':             a.sickLeave ? 'Sick Leave' : a.status,
+        'Is Late':            a.isLate       ? 'Yes' : 'No',
+        'Early Leave':        a.isEarlyLeave ? 'Yes' : 'No',
+        'Device':             a.device?.name || '--',
+        'Verify Method':      a.verificationMethod || '--',
+      };
+    });
+
+    const wb = XLSX.utils.book_new();
+
+    // ── Sheet 1: Attendance Detail ──────────────────────────────────────────
+    const ws = XLSX.utils.json_to_sheet(rows);
+
+    // Column widths
+    ws['!cols'] = [
+      { wch: 4  }, { wch: 12 }, { wch: 24 }, { wch: 18 },
+      { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 40 },
+      { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 14 },
+      { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 8  },
+      { wch: 12 }, { wch: 16 }, { wch: 14 },
+    ];
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
+
+    // ── Sheet 2: Summary ────────────────────────────────────────────────────
+    const summaryRows = [
+      { 'Metric': 'Report Date',        'Value': reportDate },
+      { 'Metric': 'Total Records',      'Value': attendance.length },
+      { 'Metric': 'Present / Half Day', 'Value': present },
+      { 'Metric': 'Absent',             'Value': absent },
+      { 'Metric': 'Late Arrivals',      'Value': late },
+      { 'Metric': 'Attendance Rate',    'Value': `${rate}%` },
+      { 'Metric': 'Generated At',       'Value': moment().format('YYYY-MM-DD HH:mm:ss') },
+    ];
+    const summaryWs = XLSX.utils.json_to_sheet(summaryRows);
+    summaryWs['!cols'] = [{ wch: 22 }, { wch: 20 }];
+    XLSX.utils.book_append_sheet(wb, summaryWs, 'Summary');
+
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const filename = `attendance-${reportDate}.xlsx`;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+
+  } catch (error) {
+    logger.error('Error exporting daily attendance:', error);
+    res.status(500).json({ success: false, message: 'Export failed: ' + error.message });
+  }
+});
+
 // Generate daily attendance report
 router.get('/daily', [
   authMiddleware,

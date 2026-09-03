@@ -102,7 +102,7 @@ export const User = sequelize.define('User', {
       fields: ['role'],
     },
     {
-      fields: ['is_active'],
+      fields: ['isActive'],
     },
   ],
   hooks: {

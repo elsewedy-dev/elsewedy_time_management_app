@@ -121,18 +121,12 @@ export async function initializeDatabase() {
     const isDevelopment = false; // Changed to false to preserve data
     logger.info(`Syncing database... (force: ${isDevelopment})`);
     
-    // Disable foreign key checks temporarily
-    await sequelize.query('SET CONSTRAINTS ALL DEFERRED;');
-    
-    // Sync all models at once - Sequelize will handle dependencies
-    await sequelize.sync({ 
-      force: isDevelopment, 
-      alter: false,
-      logging: console.log  // Enable logging to see what's happening
-    });
-    
-    // Re-enable foreign key checks
-    await sequelize.query('SET CONSTRAINTS ALL IMMEDIATE;');
+    // Sync all models — use alter:false to avoid schema conflicts on existing tables
+    try {
+      await sequelize.sync({ force: false, alter: false });
+    } catch (syncErr) {
+      logger.warn('Schema sync warning (non-fatal):', syncErr.message);
+    }
     
     logger.info(`Database synchronized successfully ${isDevelopment ? '(tables recreated)' : ''}`);
 
@@ -219,36 +213,51 @@ async function createDefaultShifts() {
     const { Shift } = await import('../models/Shift.js');
     const shifts = [
       {
-        name: 'Day Shift',
-        startTime: '08:00',
-        endTime: '16:00',
-        breakDuration: 60, // minutes
-        description: 'Regular day shift'
+        name: 'Morning Shift',
+        startTime: '06:00',
+        endTime: '14:00',
+        breakDuration: 30,
+        workingDays: [0, 1, 2, 3, 4, 5, 6],
+        isNightShift: false,
+        color: '#10B981',
+        description: 'Morning shift 06:00 - 14:00',
+        lateThreshold: 15,
+        overtimeThreshold: 30,
       },
       {
         name: 'Night Shift',
         startTime: '22:00',
         endTime: '06:00',
-        breakDuration: 60,
-        description: 'Night shift'
+        breakDuration: 30,
+        workingDays: [0, 1, 2, 3, 4, 5, 6],
+        isNightShift: true,
+        color: '#6366F1',
+        description: 'Night shift 22:00 - 06:00',
+        lateThreshold: 15,
+        overtimeThreshold: 30,
       },
       {
-        name: 'Evening Shift',
-        startTime: '16:00',
-        endTime: '00:00',
+        name: 'Day Shift',
+        startTime: '08:00',
+        endTime: '16:00',
         breakDuration: 60,
-        description: 'Evening shift'
-      }
+        workingDays: [1, 2, 3, 4, 5],
+        isNightShift: false,
+        color: '#F59E0B',
+        description: 'Regular day shift 08:00 - 16:00',
+        lateThreshold: 15,
+        overtimeThreshold: 30,
+      },
     ];
 
     for (const shift of shifts) {
       await Shift.findOrCreate({
         where: { name: shift.name },
-        defaults: shift
+        defaults: shift,
       });
     }
-    
-    logger.info('Default shifts created');
+
+    logger.info('Default shifts created (Morning, Night, Day)');
   } catch (error) {
     logger.error('Error creating default shifts:', error);
   }

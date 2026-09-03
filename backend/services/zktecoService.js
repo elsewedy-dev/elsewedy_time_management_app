@@ -76,17 +76,16 @@ class ZKTecoService {
     const device = this.devices.get(deviceId);
     if (!device) return;
 
-    // Clear existing interval if any
     if (this.syncIntervals.has(deviceId)) {
       clearInterval(this.syncIntervals.get(deviceId));
     }
 
-    // Start new sync interval
+    // Delay first sync by 30 seconds to let the server fully initialize
     const interval = setInterval(async () => {
       try {
         await this.syncDeviceLogs(deviceId);
       } catch (error) {
-        logger.error(`Sync failed for device ${deviceId}:`, error);
+        logger.error(`Sync failed for device ${deviceId}:`, error.message);
       }
     }, device.syncInterval * 1000);
 
@@ -106,55 +105,30 @@ class ZKTecoService {
 
     try {
       logger.info(`Syncing logs from device: ${device.name}`);
-      
-      // Get last sync time from database
       const dbDevice = await Device.findByPk(deviceId);
-      
-      // For manual sync, look back further to catch recent scans
-      // For auto sync, use lastSyncTime but with a buffer
-      let lastSyncTime;
-      if (forceFullSync) {
-        // Look back 7 days for manual sync to catch everything recent
-        lastSyncTime = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-        logger.info(`Force full sync: checking logs from last 7 days`);
-      } else {
-        // For auto sync, look back 1 hour before last sync to avoid missing logs
-        const bufferTime = 60 * 60 * 1000; // 1 hour buffer
-        lastSyncTime = dbDevice.lastSyncTime 
-          ? new Date(dbDevice.lastSyncTime.getTime() - bufferTime)
-          : new Date(Date.now() - 24 * 60 * 60 * 1000);
-      }
-      
-      // Connect to device and get logs
-      const logs = await this.getDeviceLogs(device, lastSyncTime);
-      
+
+      // Connect to device and get ALL logs (no date filter — device clock may be wrong)
+      const logs = await this.getDeviceLogs(device);
+
       if (logs && logs.length > 0) {
-        // Process and save logs
         await this.processDeviceLogs(deviceId, logs);
-        
-        // Update device sync status
         await dbDevice.update({
           lastSyncTime: new Date(),
           lastSyncStatus: 'success',
           lastSyncError: null,
         });
-        
         logger.info(`Successfully synced ${logs.length} logs from device: ${device.name}`);
       } else {
-        logger.info(`No new logs found for device: ${device.name}`);
-        
-        // Update sync time even if no logs
+        logger.info(`No logs found on device: ${device.name}`);
         await dbDevice.update({
           lastSyncTime: new Date(),
           lastSyncStatus: 'success',
           lastSyncError: null,
         });
       }
-      
+
     } catch (error) {
       logger.error(`Failed to sync device ${device.name}:`, error);
-      
-      // Update device with error status
       const dbDevice = await Device.findByPk(deviceId);
       if (dbDevice) {
         await dbDevice.update({
@@ -169,93 +143,77 @@ class ZKTecoService {
   /**
    * Get logs from a ZKTeco device using zkteco-js SDK
    */
-  async getDeviceLogs(device, fromDate) {
+  async getDeviceLogs(device) {
     let zkInstance = null;
-    
+
     try {
       logger.info(`Connecting to device ${device.name} at ${device.ipAddress}:${device.port}`);
-      
-      // Create ZKTeco instance
-      zkInstance = new ZKTeco(device.ipAddress, device.port, 5200, device.connectionTimeout || 5000);
-      
-      // Connect to device
+
+      zkInstance = new ZKTeco(device.ipAddress, device.port, 5200, 15000);
+
+      // Catch socket-level errors so they don't crash the process
+      if (zkInstance.socket) {
+        zkInstance.socket.on('error', (err) => {
+          logger.error(`ZKTeco socket error: ${err.message}`);
+        });
+      }
+
       await zkInstance.createSocket();
+
+      // Re-attach socket error handler after socket is created
+      if (zkInstance.socket) {
+        zkInstance.socket.on('error', (err) => {
+          logger.error(`ZKTeco socket error after connect: ${err.message}`);
+        });
+      }
+
       logger.info(`Connected to device ${device.name}`);
-      
-      // Get attendance logs
+
       const attendanceLogs = await zkInstance.getAttendances();
       logger.info(`Retrieved ${attendanceLogs.data.length} attendance logs from ${device.name}`);
-      
-      // Disconnect from device
-      await zkInstance.disconnect();
-      
-      // Get all valid logs
-      const validLogs = attendanceLogs.data.filter(log => {
-        return log.user_id && log.record_time;
-      });
-      
-      logger.info(`Retrieved ${validLogs.length} valid logs from device`);
-      
-      // Sort by the device's record time descending (most recent first)
-      validLogs.sort((a, b) => new Date(b.record_time) - new Date(a.record_time));
-      
-      // Get the timestamp of the most recent log
-      if (validLogs.length === 0) {
-        logger.info('No valid logs found');
-        return [];
-      }
-      
-      const mostRecentLogTime = new Date(validLogs[0].record_time);
-      logger.info(`Most recent log time on device: ${mostRecentLogTime}`);
-      
-      // Only process logs from the last 2 minutes (on device time)
-      const twoMinutesAgo = new Date(mostRecentLogTime.getTime() - 2 * 60 * 1000);
-      const veryRecentLogs = validLogs.filter(log => {
-        const logTime = new Date(log.record_time);
-        return logTime >= twoMinutesAgo;
-      });
-      
-      logger.info(`Found ${veryRecentLogs.length} logs from last 2 minutes on device`);
-      
-      // Use current time for all logs
-      const now = new Date();
-      const transformedLogs = veryRecentLogs.map((log, index) => ({
+
+      try { await zkInstance.disconnect(); } catch (_) {}
+
+      const validLogs = attendanceLogs.data.filter(log => log.user_id && log.record_time);
+      logger.info(`${validLogs.length} valid logs found on device`);
+
+      if (validLogs.length === 0) return [];
+
+      validLogs.sort((a, b) => new Date(a.record_time) - new Date(b.record_time));
+
+      return validLogs.map(log => ({
         userId: log.user_id,
-        timestamp: new Date(now.getTime() - (index * 2000)), // 2 seconds apart
+        timestamp: new Date(log.record_time),
         verificationType: this.getVerificationType(log.type),
         deviceId: device.id,
         rawData: {
-          deviceSerial: log.deviceId || device.serialNumber,
+          deviceSerial: device.serialNumber,
           logType: 'attendance',
           verificationResult: 1,
           ip: device.ipAddress,
           state: log.state,
           sn: log.sn,
-          originalTime: log.record_time
+          originalTime: log.record_time,
         }
       }));
-      
-      return transformedLogs;
-      
+
     } catch (error) {
       logger.error(`Failed to get logs from device ${device.name}:`, error);
-      
-      // Try to disconnect if connection was established
       if (zkInstance) {
-        try {
-          await zkInstance.disconnect();
-        } catch (disconnectError) {
-          logger.error('Failed to disconnect:', disconnectError);
-        }
+        try { await zkInstance.disconnect(); } catch (_) {}
       }
-      
-      throw error;
+      const dbDevice = await Device.findByPk(device.id);
+      if (dbDevice) {
+        await dbDevice.update({
+          lastSyncTime: new Date(),
+          lastSyncStatus: 'failed',
+          lastSyncError: `Cannot reach device at ${device.ipAddress}:${device.port} — ${error.message || 'Timeout'}`,
+        });
+      }
+      throw new Error(`Could not connect to device "${device.name}" at ${device.ipAddress}:${device.port}. ${error.message || 'Timeout'}`);
     }
   }
-  
-  /**
-   * Map ZKTeco verification type to our format
-   */
+
   getVerificationType(verifyType) {
     const typeMap = {
       0: 'password',
@@ -269,136 +227,126 @@ class ZKTecoService {
   }
 
   /**
-   * Generate mock logs for testing (remove in production)
-   */
-  generateMockLogs(device, fromDate) {
-    const logs = [];
-    const now = new Date();
-    const hoursDiff = Math.floor((now - fromDate) / (1000 * 60 * 60));
-    
-    // Generate some mock logs for the past few hours
-    for (let i = 0; i < Math.min(hoursDiff * 2, 10); i++) {
-      const logTime = new Date(now.getTime() - (i * 30 * 60 * 1000)); // Every 30 minutes
-      
-      logs.push({
-        userId: Math.floor(Math.random() * 100) + 1,
-        timestamp: logTime,
-        verificationType: Math.random() > 0.5 ? 'fingerprint' : 'face',
-        deviceId: device.id,
-        rawData: {
-          deviceSerial: device.serialNumber,
-          logType: 'check_in',
-          verificationResult: 1,
-        },
-      });
-    }
-    
-    return logs;
-  }
-
-  /**
    * Process and save device logs to database
+   * Strategy: first scan of the day = check-in, last scan of the day = check-out
+   * Uses sn (sequence number) as unique log identifier to avoid duplicates
    */
   async processDeviceLogs(deviceId, logs) {
     try {
       let processed = 0;
       let skipped = 0;
-      let activated = 0;
-      
-      for (const log of logs) {
-        // Find employee by biometric ID
-        const employee = await Employee.findOne({
-          where: { biometricId: log.userId }
-        });
 
+      // Group logs by employeeId + date so we can pick first/last per day
+      const grouped = {};
+      for (const log of logs) {
+        const logTime = new Date(log.timestamp);
+        const dateOnly = logTime.toISOString().split('T')[0];
+        const key = `${log.userId}__${dateOnly}`;
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(log);
+      }
+
+      for (const [key, dayLogs] of Object.entries(grouped)) {
+        // Sort ascending — earliest is check-in, latest is check-out
+        dayLogs.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+        const firstLog = dayLogs[0];
+        const lastLog  = dayLogs[dayLogs.length - 1];
+        const checkInTime  = new Date(firstLog.timestamp);
+        const checkOutTime = new Date(lastLog.timestamp);
+        const dateOnly = checkInTime.toISOString().split('T')[0];
+        const userId   = firstLog.userId.toString();
+
+        // Find the employee
+        let employee = await Employee.findOne({ where: { employeeId: userId } });
         if (!employee) {
-          logger.warn(`Employee not found for biometric ID: ${log.userId}`);
+          employee = await Employee.findOne({ where: { biometricId: parseInt(userId) } });
+        }
+        if (!employee) {
+          logger.warn(`Employee not found for user_id: ${userId}`);
           skipped++;
           continue;
         }
 
-        // Activate employee on first fingerprint scan if inactive
+        // Activate if inactive
         if (!employee.isActive) {
           await employee.update({ isActive: true });
-          logger.info(`Activated employee: ${employee.firstName} ${employee.lastName} (first fingerprint scan)`);
-          activated++;
         }
 
-        // Determine if this is check-in or check-out
-        const logTime = new Date(log.timestamp);
-        const dateOnly = logTime.toISOString().split('T')[0];
-        
-        // Find existing attendance record for this employee and date
-        let attendance = await Attendance.findOne({
-          where: {
-            employeeId: employee.id,
-            date: dateOnly,
-          }
+        // Determine status
+        // If only one scan and it happened recently (within last 2 hours), consider still IN
+        const now = new Date();
+        const minutesSinceLastScan = (now - checkOutTime) / 60000;
+        const hasMultipleScans = dayLogs.length > 1;
+        const sameInOut = checkInTime.getTime() === checkOutTime.getTime();
+
+        // Status logic:
+        // - One scan only → present (still in, no checkout yet)
+        // - Multiple scans → use first as check-in, last as check-out → present
+        // - Only mark checkout if there are actually 2+ distinct scan times
+        const status = 'present';
+        const finalCheckOut = (hasMultipleScans && !sameInOut) ? checkOutTime : null;
+
+        // Upsert the attendance record for this employee+date
+        const existing = await Attendance.findOne({
+          where: { employeeId: employee.id, date: dateOnly }
         });
 
-        if (!attendance) {
-          // Create new attendance record with check-in time
-          attendance = await Attendance.create({
+        if (!existing) {
+          await Attendance.create({
             employeeId: employee.id,
             deviceId: deviceId,
             date: dateOnly,
-            checkInTime: logTime,
-            status: 'present',
-            verificationMethod: log.verificationType,
-            deviceLogId: log.userId.toString(),
-            rawLogData: log.rawData,
+            checkInTime: checkInTime,
+            checkOutTime: finalCheckOut,
+            status: status,
+            verificationMethod: firstLog.verificationType,
+            deviceLogId: userId,
+            rawLogData: firstLog.rawData,
           });
           processed++;
-          logger.debug(`Check-in for ${employee.firstName} ${employee.lastName} at ${logTime.toLocaleTimeString()}`);
-          
-          // Broadcast attendance update via WebSocket
-          try {
-            const { wsService } = await import('./websocket.js');
-            if (wsService.isInitialized) {
-              // Load attendance with employee details
-              const attendanceWithEmployee = await Attendance.findByPk(attendance.id, {
-                include: [{
-                  model: Employee,
-                  as: 'employee',
-                  attributes: ['id', 'firstName', 'lastName', 'employeeId', 'departmentId']
-                }]
-              });
-              wsService.broadcastAttendanceUpdate(attendanceWithEmployee);
-            }
-          } catch (wsError) {
-            logger.error('Failed to broadcast attendance update:', wsError);
-          }
-        } else if (!attendance.checkOutTime) {
-          // Update with check-out time if not already set
-          attendance.checkOutTime = logTime;
-          attendance.status = 'absent';
-          await attendance.save();
-          logger.debug(`Check-out for ${employee.firstName} ${employee.lastName} at ${logTime.toLocaleTimeString()}`);
-          
-          // Broadcast attendance update via WebSocket
-          try {
-            const { wsService } = await import('./websocket.js');
-            if (wsService.isInitialized) {
-              const attendanceWithEmployee = await Attendance.findByPk(attendance.id, {
-                include: [{
-                  model: Employee,
-                  as: 'employee',
-                  attributes: ['id', 'firstName', 'lastName', 'employeeId', 'departmentId']
-                }]
-              });
-              wsService.broadcastAttendanceUpdate(attendanceWithEmployee);
-            }
-          } catch (wsError) {
-            logger.error('Failed to broadcast attendance update:', wsError);
-          }
+          logger.debug(`Attendance created: ${employee.firstName} ${employee.lastName} on ${dateOnly}`);
         } else {
-          // Already has both check-in and check-out
+          // Always update with latest data — keep earliest check-in, latest check-out
+          const updatedCheckIn = existing.checkInTime && existing.checkInTime < checkInTime
+            ? existing.checkInTime
+            : checkInTime;
+          const updatedCheckOut = finalCheckOut
+            ? (existing.checkOutTime && existing.checkOutTime > finalCheckOut
+                ? existing.checkOutTime
+                : finalCheckOut)
+            : existing.checkOutTime;
+
+          await existing.update({
+            checkInTime: updatedCheckIn,
+            checkOutTime: updatedCheckOut,
+            status: status,
+          });
+          logger.debug(`Attendance updated: ${employee.firstName} ${employee.lastName} on ${dateOnly}`);
           skipped++;
         }
+
+        // Broadcast via WebSocket
+        try {
+          const { wsService } = await import('./websocket.js');
+          if (wsService.isInitialized) {
+            const attendanceWithEmployee = await Attendance.findOne({
+              where: { employeeId: employee.id, date: dateOnly },
+              include: [{
+                model: Employee,
+                as: 'employee',
+                attributes: ['id', 'firstName', 'lastName', 'employeeId', 'departmentId']
+              }]
+            });
+            wsService.broadcastAttendanceUpdate(attendanceWithEmployee);
+          }
+        } catch (wsError) {
+          logger.error('Failed to broadcast attendance update:', wsError);
+        }
       }
-      
-      logger.info(`Processed ${processed} new attendance records, skipped ${skipped} existing, activated ${activated} employees`);
-      
+
+      logger.info(`Processed ${processed} new attendance records, updated/skipped ${skipped}`);
+
     } catch (error) {
       logger.error('Failed to process device logs:', error);
       throw error;
@@ -444,92 +392,49 @@ class ZKTecoService {
       
       for (const user of users.data) {
         try {
-          // Check if employee with this biometric ID exists
-          let employee = await Employee.findOne({
-            where: { biometricId: user.uid }
-          });
-          
+          // uid  = internal slot (attendance logs reference this)
+          // userId = real company ID set during enrollment
+          const biometricId = user.uid;
+          const employeeId = user.userId?.toString().trim() || user.uid.toString();
+
+          // Parse name
+          const rawName = user.name?.trim() || '';
+          const nameParts = rawName.split(/\s+/);
+          let firstName = nameParts[0] || rawName;
+          let lastName = nameParts.slice(1).join(' ') || '';
+          if (firstName.length < 2) firstName = firstName.padEnd(2, 'X');
+          if (firstName.length > 50) firstName = firstName.substring(0, 50);
+          if (lastName.length > 50) lastName = lastName.substring(0, 50);
+
+          // Find employee by biometricId (uid) — this is the stable key
+          let employee = await Employee.findOne({ where: { biometricId } });
+
           if (employee) {
-            // Update existing employee
-            const nameParts = user.name.trim().split(/\s+/); // Split by whitespace
-            let firstName = nameParts[0] || user.name.trim();
-            let lastName = nameParts.slice(1).join(' ') || '';
-            
-            // Ensure firstName meets minimum length requirement (2 chars)
-            if (firstName.length < 2) {
-              firstName = firstName.padEnd(2, 'X'); // Pad with X if too short
+            // Update name AND real employeeId
+            // If employeeId conflicts with another employee, keep existing
+            try {
+              await employee.update({ firstName, lastName, employeeId });
+            } catch (dupErr) {
+              // employeeId already taken by someone else — just update the name
+              await employee.update({ firstName, lastName });
+              logger.warn(`Duplicate employeeId=${employeeId} for uid=${biometricId} (${rawName}), kept existing ID`);
             }
-            
-            // Ensure firstName doesn't exceed max length (50 chars)
-            if (firstName.length > 50) {
-              firstName = firstName.substring(0, 50);
-            }
-            
-            // Ensure lastName doesn't exceed max length (50 chars)
-            if (lastName.length > 50) {
-              lastName = lastName.substring(0, 50);
-            }
-            
-            await employee.update({
-              firstName: firstName,
-              lastName: lastName,
-            });
             syncResults.updated++;
-            logger.debug(`Updated employee: ${user.name} (Biometric ID: ${user.uid})`);
+            logger.debug(`Updated employee: ${rawName} (uid=${biometricId}, employeeId=${employeeId})`);
           } else {
-            // Check if we need to create a new employee
-            // Only create if the user has a valid name
-            if (user.name && user.name.trim()) {
-              // Get default user for createdBy
-              const { User } = await import('../models/User.js');
-              const defaultUser = await User.findOne({
-                where: { role: 'admin' }
-              });
-              
-              if (!defaultUser) {
-                syncResults.errors.push({
-                  user: user.name,
-                  error: 'Default user not found'
-                });
-                continue;
-              }
-              
-              // Create new employee (inactive until first fingerprint scan)
-              // Department will be null - must be assigned manually
-              const nameParts = user.name.trim().split(/\s+/); // Split by whitespace
-              let firstName = nameParts[0] || user.name.trim();
-              let lastName = nameParts.slice(1).join(' ') || '';
-              
-              // Ensure firstName meets minimum length requirement (2 chars)
-              if (firstName.length < 2) {
-                firstName = firstName.padEnd(2, 'X'); // Pad with X if too short
-              }
-              
-              // Ensure firstName doesn't exceed max length (50 chars)
-              if (firstName.length > 50) {
-                firstName = firstName.substring(0, 50);
-              }
-              
-              // Ensure lastName doesn't exceed max length (50 chars)
-              if (lastName.length > 50) {
-                lastName = lastName.substring(0, 50);
-              }
-              
-              employee = await Employee.create({
-                firstName: firstName,
-                lastName: lastName,
-                biometricId: user.uid,
-                employeeId: user.uid.toString(), // Use biometric ID as employee ID
-                departmentId: null, // No default department - must be assigned manually
-                createdBy: defaultUser.id,
-                hireDate: new Date(),
-                isActive: false, // Will be activated on first fingerprint scan
-              });
-              syncResults.created++;
-              logger.info(`Created new employee: ${user.name} (User ID: ${user.uid}) - Inactive until first scan, no department assigned`);
-            } else {
-              syncResults.skipped++;
-            }
+            if (!rawName) { syncResults.skipped++; continue; }
+
+            employee = await Employee.create({
+              firstName,
+              lastName,
+              biometricId,
+              employeeId,
+              departmentId: null,
+              hireDate: new Date(),
+              isActive: true,
+            });
+            syncResults.created++;
+            logger.info(`Created employee: ${rawName} (uid=${biometricId}, employeeId=${employeeId})`);
           }
         } catch (error) {
           logger.error(`Failed to process user ${user.name}:`, error);
@@ -547,7 +452,6 @@ class ZKTecoService {
     } catch (error) {
       logger.error(`Failed to sync users from device ${device.name}:`, error);
       
-      // Try to disconnect if connection was established
       if (zkInstance) {
         try {
           await zkInstance.disconnect();
@@ -555,8 +459,16 @@ class ZKTecoService {
           logger.error('Failed to disconnect:', disconnectError);
         }
       }
-      
-      throw error;
+
+      const dbDevice = await Device.findByPk(device.id);
+      if (dbDevice) {
+        await dbDevice.update({
+          lastSyncTime: new Date(),
+          lastSyncStatus: 'failed',
+          lastSyncError: `Cannot reach device at ${device.ipAddress}:${device.port} — ${error.message || 'Timeout'}`,
+        });
+      }
+      throw new Error(`Could not connect to device "${device.name}" at ${device.ipAddress}:${device.port}. ${error.message || 'Timeout'}`);
     }
   }
 

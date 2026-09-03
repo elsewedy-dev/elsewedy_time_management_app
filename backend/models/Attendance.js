@@ -86,6 +86,14 @@ export const Attendance = sequelize.define('Attendance', {
     type: DataTypes.STRING,
     allowNull: true,
   },
+  sickLeave: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+  },
+  sickLeaveNote: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
   rawLogData: {
     type: DataTypes.JSON,
     allowNull: true,
@@ -132,61 +140,104 @@ export const Attendance = sequelize.define('Attendance', {
   ],
   hooks: {
     beforeSave: async (attendance) => {
-      // Calculate working hours if both check-in and check-out times are present
+      // Look up employee's shift to get accurate start/end times
+      let shiftStartHour = 8, shiftStartMin = 0;
+      let shiftEndHour = 17, shiftEndMin = 0;
+      let lateThreshold = 15;
+      let standardHours = 8;
+
+      try {
+        const { Employee } = await import('./Employee.js');
+        const { Shift } = await import('./Shift.js');
+        const employee = await Employee.findByPk(attendance.employeeId, {
+          include: [{ model: Shift, as: 'shift', attributes: ['startTime', 'endTime', 'lateThreshold', 'breakDuration', 'isNightShift'] }],
+        });
+        if (employee?.shift) {
+          const s = employee.shift;
+          if (s.startTime) {
+            const [h, m] = s.startTime.split(':').map(Number);
+            shiftStartHour = h; shiftStartMin = m;
+          }
+          if (s.endTime) {
+            const [h, m] = s.endTime.split(':').map(Number);
+            shiftEndHour = h; shiftEndMin = m;
+          }
+          if (s.lateThreshold != null) lateThreshold = s.lateThreshold;
+          if (s.breakDuration != null) {
+            // Calculate standard shift hours from start/end minus break
+            let shiftMins = (shiftEndHour * 60 + shiftEndMin) - (shiftStartHour * 60 + shiftStartMin);
+            if (shiftMins <= 0) shiftMins += 24 * 60; // overnight shift
+            standardHours = Math.max(1, (shiftMins - s.breakDuration) / 60);
+          }
+        }
+      } catch (_) {
+        // Fall back to defaults if lookup fails
+      }
+
+      // Only calculate working hours and status if BOTH check-in and check-out exist
       if (attendance.checkInTime && attendance.checkOutTime) {
         const checkIn = moment(attendance.checkInTime);
         const checkOut = moment(attendance.checkOutTime);
-        
-        // Calculate total working hours (excluding break time)
+
+        if (checkOut.isSameOrBefore(checkIn)) {
+          attendance.checkOutTime = null;
+          attendance.totalWorkingHours = 0;
+          attendance.overtimeHours = 0;
+          attendance.status = 'present';
+          return;
+        }
+
         let totalHours = checkOut.diff(checkIn, 'minutes') / 60;
-        
-        // Subtract break time if break times are recorded
+
         if (attendance.breakStartTime && attendance.breakEndTime) {
-          const breakStart = moment(attendance.breakStartTime);
-          const breakEnd = moment(attendance.breakEndTime);
-          const breakMinutes = breakEnd.diff(breakStart, 'minutes');
+          const breakMinutes = moment(attendance.breakEndTime).diff(moment(attendance.breakStartTime), 'minutes');
           totalHours -= breakMinutes / 60;
         }
-        
+
         attendance.totalWorkingHours = Math.max(0, totalHours);
-        
-        // Calculate overtime (assuming 8 hours is standard working day)
-        const standardHours = 8;
-        if (totalHours > standardHours) {
-          attendance.overtimeHours = totalHours - standardHours;
-        } else {
-          attendance.overtimeHours = 0;
-        }
-        
-        // Determine status based on working hours
-        if (totalHours >= 8) {
+        attendance.overtimeHours = Math.max(0, totalHours - standardHours);
+
+        if (totalHours >= standardHours) {
           attendance.status = 'present';
-        } else if (totalHours >= 4) {
+        } else if (totalHours >= standardHours / 2) {
           attendance.status = 'half_day';
-        } else {
+        } else if (totalHours >= 1) {
           attendance.status = 'early_leave';
+        } else {
+          attendance.status = 'present';
+          attendance.checkOutTime = null;
         }
+      } else {
+        attendance.status = 'present';
+        attendance.totalWorkingHours = 0;
+        attendance.overtimeHours = 0;
       }
-      
-      // Calculate late minutes if check-in time is available
+
+      // Late check using shift start time + threshold
       if (attendance.checkInTime) {
         const checkInTime = moment(attendance.checkInTime);
-        const expectedStartTime = moment(attendance.date).hour(8).minute(0); // 8:00 AM
-        
-        if (checkInTime.isAfter(expectedStartTime)) {
+        const expectedStart = moment(attendance.checkInTime)
+          .hour(shiftStartHour).minute(shiftStartMin + lateThreshold).second(0);
+        if (checkInTime.isAfter(expectedStart)) {
           attendance.isLate = true;
-          attendance.lateMinutes = checkInTime.diff(expectedStartTime, 'minutes');
+          const baseStart = moment(attendance.checkInTime).hour(shiftStartHour).minute(shiftStartMin).second(0);
+          attendance.lateMinutes = checkInTime.diff(baseStart, 'minutes');
+        } else {
+          attendance.isLate = false;
+          attendance.lateMinutes = 0;
         }
       }
-      
-      // Calculate early leave minutes if check-out time is available
+
+      // Early leave check using shift end time
       if (attendance.checkOutTime) {
         const checkOutTime = moment(attendance.checkOutTime);
-        const expectedEndTime = moment(attendance.date).hour(17).minute(0); // 5:00 PM
-        
-        if (checkOutTime.isBefore(expectedEndTime)) {
+        const expectedEnd = moment(attendance.checkOutTime).hour(shiftEndHour).minute(shiftEndMin).second(0);
+        if (checkOutTime.isBefore(expectedEnd)) {
           attendance.isEarlyLeave = true;
-          attendance.earlyLeaveMinutes = expectedEndTime.diff(checkOutTime, 'minutes');
+          attendance.earlyLeaveMinutes = expectedEnd.diff(checkOutTime, 'minutes');
+        } else {
+          attendance.isEarlyLeave = false;
+          attendance.earlyLeaveMinutes = 0;
         }
       }
     },

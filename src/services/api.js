@@ -269,6 +269,53 @@ class ApiService {
     });
   }
 
+  // Shift endpoints
+  async getShifts() {
+    return await this.request('/shifts');
+  }
+
+  async getShift(id) {
+    return await this.request(`/shifts/${id}`);
+  }
+
+  async createShift(shiftData) {
+    return await this.request('/shifts', {
+      method: 'POST',
+      body: JSON.stringify(shiftData),
+    });
+  }
+
+  async updateShift(id, shiftData) {
+    return await this.request(`/shifts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(shiftData),
+    });
+  }
+
+  async deleteShift(id) {
+    return await this.request(`/shifts/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getShiftEmployees(id) {
+    return await this.request(`/shifts/${id}/employees`);
+  }
+
+  async assignEmployeesToShift(id, employeeIds) {
+    return await this.request(`/shifts/${id}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ employeeIds }),
+    });
+  }
+
+  async unassignEmployeesFromShift(id, employeeIds) {
+    return await this.request(`/shifts/${id}/unassign`, {
+      method: 'POST',
+      body: JSON.stringify({ employeeIds }),
+    });
+  }
+
   // Health check
   async healthCheck() {
     const baseUrl = this.baseURL.replace('/api', '');

@@ -9,6 +9,8 @@ import Employees from "./ui/components/Employees";
 import Devices from "./ui/components/Devices";
 import Reports from "./ui/components/Reports";
 import Settings from "./ui/components/Settings";
+import Shifts from "./ui/components/Shifts";
+import CalendarView from "./ui/components/CalendarView";
 import { useTodayAttendance, useEmployees, useDeviceStats } from "./hooks/useApi";
 import apiService from "./services/api";
 import { 
@@ -17,7 +19,9 @@ import {
   Monitor, 
   BarChart3, 
   Settings as SettingsIcon, 
-  Info 
+  Info,
+  Clock,
+  CalendarDays
 } from "lucide-react";
 
 const initialStats = [
@@ -76,6 +80,7 @@ export default function App() {
   // Derived state from API data
   const [stats, setStats] = useState(initialStats);
   const [attendance, setAttendance] = useState(initialAttendanceData);
+  const [absentEmployees, setAbsentEmployees] = useState([]);
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({ date: "", name: "", type: "", onExport: handleExport });
 
@@ -196,9 +201,14 @@ export default function App() {
   useEffect(() => {
     if (todayAttendance && todayAttendance.data) {
       // Handle both array and object with attendance array
-      const attendanceArray = Array.isArray(todayAttendance.data) 
-        ? todayAttendance.data 
+      const attendanceArray = Array.isArray(todayAttendance.data)
+        ? todayAttendance.data
         : todayAttendance.data.attendance || [];
+
+      // Pass absent employees to state
+      if (todayAttendance.data.absentEmployees) {
+        setAbsentEmployees(todayAttendance.data.absentEmployees);
+      }
       
       const formattedAttendance = attendanceArray.map(record => {
         // Helper function to safely format time
@@ -207,22 +217,32 @@ export default function App() {
           try {
             const date = new Date(timeString);
             if (isNaN(date.getTime())) return '--';
-            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
           } catch (error) {
-            console.error('Error formatting time:', error);
             return '--';
           }
         };
 
         return {
-          name: `${record.employee.firstName} ${record.employee.lastName}`,
-          id: record.employee.employeeId,
+          id: record.id,
+          name: `${record.employee?.firstName} ${record.employee?.lastName}`,
+          employeeId: record.employee?.employeeId,
           inTime: formatTime(record.checkInTime),
           outTime: formatTime(record.checkOutTime),
-          status: record.status === 'present' ? 'In' : 'Out',
-          method: record.verificationMethod === 'face' ? 'Face' : 
-                  record.verificationMethod === 'fingerprint' ? 'Fingerprint' : 
+          workingHours: record.totalWorkingHours ? Number(record.totalWorkingHours).toFixed(1) : null,
+          status: record.status,
+          method: record.verificationMethod === 'face' ? 'Face' :
+                  record.verificationMethod === 'fingerprint' ? 'Fingerprint' :
                   record.verificationMethod || 'Manual',
+          shift: record.employee?.shift || null,
+          shiftMismatch: record.shiftMismatch || false,
+          shiftMismatchReason: record.shiftMismatchReason || null,
+          isLate: record.isLate,
+          lateMinutes: record.lateMinutes,
+          // keep raw times for export
+          rawCheckIn: record.checkInTime,
+          rawCheckOut: record.checkOutTime,
+          department: record.employee?.department?.name || 'N/A',
         };
       });
       setAttendance(formattedAttendance);
@@ -295,12 +315,13 @@ export default function App() {
 
   // Sidebar nav links
   const navLinks = [
-    { name: "Dashboard", icon: <LayoutDashboard className="w-5 h-5" />, key: "dashboard", active: page === "dashboard" },
-    { name: "Employees", icon: <Users className="w-5 h-5" />, key: "employees", active: page === "employees" },
-    { name: "Devices", icon: <Monitor className="w-5 h-5" />, key: "devices", active: page === "devices" },
-    // { name: "Reports", icon: <BarChart3 className="w-5 h-5" />, key: "reports", active: page === "reports" },
-    { name: "Settings", icon: <SettingsIcon className="w-5 h-5" />, key: "settings", active: page === "settings" },
-    { name: "About", icon: <Info className="w-5 h-5" />, key: "about", active: page === "about" },
+    { name: "Dashboard",  icon: <LayoutDashboard className="w-5 h-5" />, key: "dashboard",  active: page === "dashboard" },
+    { name: "Employees",  icon: <Users className="w-5 h-5" />,          key: "employees",  active: page === "employees" },
+    { name: "Shifts",     icon: <Clock className="w-5 h-5" />,           key: "shifts",     active: page === "shifts" },
+    { name: "Calendar",   icon: <CalendarDays className="w-5 h-5" />,    key: "calendar",   active: page === "calendar" },
+    { name: "Devices",    icon: <Monitor className="w-5 h-5" />,         key: "devices",    active: page === "devices" },
+    { name: "Settings",   icon: <SettingsIcon className="w-5 h-5" />,    key: "settings",   active: page === "settings" },
+    { name: "About",      icon: <Info className="w-5 h-5" />,            key: "about",      active: page === "about" },
   ];
 
   return (
@@ -337,11 +358,15 @@ export default function App() {
               loading={loading}
               onExport={handleExport}
               onReset={handleResetToday}
+              absentEmployees={absentEmployees}
+              onAbsentUpdate={() => window.location.reload()}
             />
           )}
           {page === "about" && <About isDark={isDark} />}
           {page === "employees" && <Employees />}
-          {page === "devices" && <Devices />}
+          {page === "shifts"    && <Shifts />}
+          {page === "calendar"  && <CalendarView />}
+          {page === "devices"   && <Devices />}
           {/* {page === "reports" && <Reports />} */}
           {page === "settings" && <Settings isDark={isDark} toggleTheme={toggleTheme} />}
         </main>

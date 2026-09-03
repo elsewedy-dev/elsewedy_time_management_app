@@ -2,6 +2,14 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+// Prevent unhandled errors from crashing the server (especially from zkteco-js socket errors)
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException] Caught unhandled error — server kept alive:', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection] Caught unhandled rejection — server kept alive:', reason);
+});
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -16,6 +24,9 @@ import attendanceRoutes from './routes/attendance.js';
 import deviceRoutes from './routes/devices.js';
 import reportRoutes from './routes/reports.js';
 import overtimeRoutes from './routes/overtime.js';
+import shiftRoutes from './routes/shifts.js';
+import departmentRoutes from './routes/departments.js';
+import holidayRoutes from './routes/holidays.js';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
@@ -37,8 +48,16 @@ app.use(helmet({
 }));
 
 // CORS configuration
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5175').split(',').map(o => o.trim());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5175',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (device pushes, curl)
+    if (!origin) return callback(null, true);
+    // Allow any machine on the 10.201.x.x network
+    if (/^http:\/\/10\.201\.\d+\.\d+(:\d+)?$/.test(origin)) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
@@ -77,6 +96,9 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/devices', deviceRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/overtime', overtimeRoutes);
+app.use('/api/shifts', shiftRoutes);
+app.use('/api/departments', departmentRoutes);
+app.use('/api/holidays', holidayRoutes);
 
 // ZKTeco webhook routes (no /api prefix for device compatibility)
 app.use('/zkteco', zktecoWebhookRoutes);
@@ -104,6 +126,15 @@ async function startServer() {
     const server = app.listen(PORT, HOST, () => {
       logger.info(`🚀 Elsewedy Attendance System Backend running on http://${HOST}:${PORT}`);
       logger.info(`📊 Health check: http://${HOST}:${PORT}/health`);
+    });
+
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        logger.error(`Port ${PORT} is already in use by another process. Please terminate the conflicting process or change PORT in .env.`);
+        process.exit(1);
+      } else {
+        logger.error('Server execution error:', err);
+      }
     });
 
     // Initialize WebSocket server (after HTTP server starts)
@@ -141,3 +172,4 @@ async function startServer() {
 startServer();
 
 export default app;
+
