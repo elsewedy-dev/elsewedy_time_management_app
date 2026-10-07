@@ -5,7 +5,7 @@ import logoWhite from "../../assets/logo_white.png";
 import logoBlack from "../../assets/logo_black.png";
 import apiService from "../../services/api";
 
-export default function Header({ onMenuClick, sidebarOpen, isDark, toggleTheme, onShowShortcuts, onSyncLogs, syncing = false }) {
+export default function Header({ onMenuClick, sidebarOpen, isDark, toggleTheme, onShowShortcuts, onSyncLogs, syncing = false, isAdmin = true }) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [deviceName, setDeviceName] = useState('');
 
@@ -87,6 +87,11 @@ export default function Header({ onMenuClick, sidebarOpen, isDark, toggleTheme, 
             />
           </div>
           <h1 className="text-xl font-semibold tracking-tight text-light-text dark:text-dark-text">Attendance Dashboard</h1>
+          {!isAdmin && (
+            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+              HR View
+            </span>
+          )}
         </div>
       </div>
       
@@ -114,17 +119,19 @@ export default function Header({ onMenuClick, sidebarOpen, isDark, toggleTheme, 
         
         <ThemeToggle isDark={isDark} toggleTheme={toggleTheme} />
         
-        <button 
-          onClick={onSyncLogs}
-          disabled={syncing}
-          className="px-4 py-2 bg-gradient-to-r from-light-accent to-blue-600 dark:from-dark-accent dark:to-purple-600 hover:from-blue-600 hover:to-blue-700 dark:hover:from-purple-600 dark:hover:to-purple-700 text-white rounded-lg font-medium transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-          title="Sync attendance logs from device (Ctrl+R)"
-        >
-          <svg className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          {syncing ? 'Syncing...' : 'Sync Logs'}
-        </button>
+        {isAdmin && (
+          <button 
+            onClick={onSyncLogs}
+            disabled={syncing}
+            className="px-4 py-2 bg-gradient-to-r from-light-accent to-blue-600 dark:from-dark-accent dark:to-purple-600 hover:from-blue-600 hover:to-blue-700 dark:hover:from-purple-600 dark:hover:to-purple-700 text-white rounded-lg font-medium transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+            title="Sync attendance logs from device (Ctrl+R)"
+          >
+            <svg className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            {syncing ? 'Syncing...' : 'Sync Logs'}
+          </button>
+        )}
       </div>
     </header>
   );

@@ -6,11 +6,12 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 8080,
-    host: '0.0.0.0',   // listen on all interfaces so HR office can reach it
-    strictPort: false,  // fall back to next available port if 8080 is taken
+    host: '0.0.0.0',
+    strictPort: false,
+    allowedHosts: ['localhost', '127.0.0.1', '10.201.1.197', '10.201.1.220'],
     proxy: {
       '/api': {
-        target: 'http://10.201.1.214:3001',
+        target: 'http://localhost:3001',
         changeOrigin: true,
       },
     },

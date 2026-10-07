@@ -31,7 +31,7 @@ const EMPTY_FORM = {
   location: "",
 };
 
-export default function Devices() {
+export default function Devices({ isAdmin = false }) {
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState({});
@@ -227,13 +227,15 @@ export default function Devices() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8 mt-2">
         <h2 className="text-2xl font-bold text-light-text dark:text-dark-text">Devices</h2>
-        <button
-          onClick={openAddModal}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-light-accent to-blue-600 dark:from-dark-accent dark:to-purple-600 text-white rounded-lg shadow hover:scale-105 hover:shadow-lg transition-all text-sm font-medium"
-        >
-          <Plus className="w-4 h-4" />
-          Add Device
-        </button>
+        {isAdmin && (
+          <button
+            onClick={openAddModal}
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-light-accent to-blue-600 dark:from-dark-accent dark:to-purple-600 text-white rounded-lg shadow hover:scale-105 hover:shadow-lg transition-all text-sm font-medium"
+          >
+            <Plus className="w-4 h-4" />
+            Add Device
+          </button>
+        )}
       </div>
 
       {/* Table */}
@@ -262,12 +264,14 @@ export default function Devices() {
                   <td colSpan="7" className="px-4 py-12 text-center text-light-textSecondary dark:text-dark-textSecondary">
                     <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-50" />
                     <p className="mb-3">No devices found</p>
-                    <button
-                      onClick={openAddModal}
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-light-accent to-blue-600 dark:from-dark-accent dark:to-purple-600 text-white rounded-lg text-sm"
-                    >
-                      <Plus className="w-4 h-4" /> Add your first device
-                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={openAddModal}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-light-accent to-blue-600 dark:from-dark-accent dark:to-purple-600 text-white rounded-lg text-sm"
+                      >
+                        <Plus className="w-4 h-4" /> Add your first device
+                      </button>
+                    )}
                   </td>
                 </tr>
               ) : (
@@ -307,15 +311,17 @@ export default function Devices() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          {/* Edit */}
-                          <button
-                            onClick={() => openEditModal(device)}
-                            title="Edit device"
-                            className="flex items-center gap-1 px-3 py-1 bg-light-accent/10 dark:bg-dark-accent/10 hover:bg-light-accent/20 dark:hover:bg-dark-accent/20 text-light-text dark:text-dark-text rounded text-xs transition-all"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                            Edit
-                          </button>
+                          {/* Edit — admin only */}
+                          {isAdmin && (
+                            <button
+                              onClick={() => openEditModal(device)}
+                              title="Edit device"
+                              className="flex items-center gap-1 px-3 py-1 bg-light-accent/10 dark:bg-dark-accent/10 hover:bg-light-accent/20 dark:hover:bg-dark-accent/20 text-light-text dark:text-dark-text rounded text-xs transition-all"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                              Edit
+                            </button>
+                          )}
 
                           {/* Test */}
                           <button

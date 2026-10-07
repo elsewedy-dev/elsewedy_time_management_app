@@ -63,6 +63,24 @@ function exportToCSV(data) {
 }
 
 export default function App() {
+  // ── Role detection based on access origin ─────────────────────────────────
+  const hostname = window.location.hostname;
+  const isAdmin = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  const isHR    = hostname === '10.201.1.197';
+
+  // Block access from any other IP
+  if (!isAdmin && !isHR) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-gray-950 text-white gap-4">
+        <div className="text-6xl">🔒</div>
+        <h1 className="text-2xl font-bold">Access Denied</h1>
+        <p className="text-gray-400 text-sm">Your IP address is not authorised to access this system.</p>
+        <p className="text-gray-600 text-xs font-mono">{hostname}</p>
+      </div>
+    );
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
   // For Electron desktop app, start with sidebar closed for better UX
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isDark, setIsDark] = useState(false);
@@ -315,14 +333,16 @@ export default function App() {
     });
   }, [attendance, filters]);
 
-  // Sidebar nav links
+  // Sidebar nav links — Devices and Settings are admin-only
   const navLinks = [
     { name: "Dashboard",  icon: <LayoutDashboard className="w-5 h-5" />, key: "dashboard",  active: page === "dashboard" },
     { name: "Employees",  icon: <Users className="w-5 h-5" />,          key: "employees",  active: page === "employees" },
     { name: "Shifts",     icon: <Clock className="w-5 h-5" />,           key: "shifts",     active: page === "shifts" },
     { name: "Calendar",   icon: <CalendarDays className="w-5 h-5" />,    key: "calendar",   active: page === "calendar" },
-    { name: "Devices",    icon: <Monitor className="w-5 h-5" />,         key: "devices",    active: page === "devices" },
-    { name: "Settings",   icon: <SettingsIcon className="w-5 h-5" />,    key: "settings",   active: page === "settings" },
+    ...(isAdmin ? [
+      { name: "Devices",  icon: <Monitor className="w-5 h-5" />,        key: "devices",    active: page === "devices" },
+      { name: "Settings", icon: <SettingsIcon className="w-5 h-5" />,   key: "settings",   active: page === "settings" },
+    ] : []),
     { name: "About",      icon: <Info className="w-5 h-5" />,            key: "about",      active: page === "about" },
   ];
 
@@ -346,6 +366,7 @@ export default function App() {
           onShowShortcuts={() => setShowShortcuts(true)}
           onSyncLogs={handleSyncLogs}
           syncing={syncing}
+          isAdmin={isAdmin}
         />
         {/* Main dashboard content */}
         <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-8 w-full flex flex-col gap-8">
@@ -365,12 +386,12 @@ export default function App() {
             />
           )}
           {page === "about" && <About isDark={isDark} />}
-          {page === "employees" && <Employees />}
+          {page === "employees" && <Employees isAdmin={isAdmin} />}
           {page === "shifts"    && <Shifts />}
           {page === "calendar"  && <CalendarView />}
-          {page === "devices"   && <Devices />}
+          {page === "devices"   && isAdmin && <Devices isAdmin={isAdmin} />}
           {/* {page === "reports" && <Reports />} */}
-          {page === "settings" && <Settings isDark={isDark} toggleTheme={toggleTheme} />}
+          {page === "settings" && isAdmin && <Settings isDark={isDark} toggleTheme={toggleTheme} />}
         </main>
       </div>
       {/* Keyboard Shortcuts Modal */}

@@ -7,7 +7,7 @@ const EMPTY_FORM = {
   departmentId: "", shiftId: "", position: "", phone: "", notes: "", isActive: true,
 };
 
-export default function Employees() {
+export default function Employees({ isAdmin = false }) {
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [shifts, setShifts] = useState([]);
@@ -192,10 +192,12 @@ export default function Employees() {
             <option value="">All Departments</option>
             {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
-          <button onClick={openAdd}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-light-accent to-blue-600 dark:from-dark-accent dark:to-purple-600 text-white rounded-lg shadow hover:scale-105 transition-all text-sm font-medium">
-            <Plus className="w-4 h-4" /> Add Employee
-          </button>
+          {isAdmin && (
+            <button onClick={openAdd}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-light-accent to-blue-600 dark:from-dark-accent dark:to-purple-600 text-white rounded-lg shadow hover:scale-105 transition-all text-sm font-medium">
+              <Plus className="w-4 h-4" /> Add Employee
+            </button>
+          )}
         </div>
       </div>
 
@@ -242,24 +244,33 @@ export default function Employees() {
                     {emp.position || "—"}
                   </td>
                   <td className="px-4 py-3">
-                    <button onClick={() => toggleStatus(emp)}
-                      className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition-all hover:scale-105
+                    {isAdmin ? (
+                      <button onClick={() => toggleStatus(emp)}
+                        className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold transition-all hover:scale-105
+                          ${emp.isActive ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400" : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"}`}>
+                        {emp.isActive ? <><CheckCircle className="w-3.5 h-3.5" /> Active</> : <><XCircle className="w-3.5 h-3.5" /> Inactive</>}
+                      </button>
+                    ) : (
+                      <span className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold w-fit
                         ${emp.isActive ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400" : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"}`}>
-                      {emp.isActive ? <><CheckCircle className="w-3.5 h-3.5" /> Active</> : <><XCircle className="w-3.5 h-3.5" /> Inactive</>}
-                    </button>
+                        {emp.isActive ? <><CheckCircle className="w-3.5 h-3.5" /> Active</> : <><XCircle className="w-3.5 h-3.5" /> Inactive</>}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex gap-2">
-                      <button onClick={() => openEdit(emp)}
-                        className="flex items-center gap-1 px-3 py-1 bg-light-accent/10 dark:bg-dark-accent/10 hover:bg-light-accent/20 dark:hover:bg-dark-accent/20 text-light-text dark:text-dark-text rounded text-xs transition-all">
-                        <Pencil className="w-3.5 h-3.5" /> Edit
-                      </button>
-                      <button onClick={() => handleDelete(emp)} disabled={deleting === emp.id}
-                        className="flex items-center gap-1 px-3 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-500 dark:text-red-400 rounded text-xs transition-all disabled:opacity-50">
-                        {deleting === emp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                        Delete
-                      </button>
-                    </div>
+                    {isAdmin && (
+                      <div className="flex gap-2">
+                        <button onClick={() => openEdit(emp)}
+                          className="flex items-center gap-1 px-3 py-1 bg-light-accent/10 dark:bg-dark-accent/10 hover:bg-light-accent/20 dark:hover:bg-dark-accent/20 text-light-text dark:text-dark-text rounded text-xs transition-all">
+                          <Pencil className="w-3.5 h-3.5" /> Edit
+                        </button>
+                        <button onClick={() => handleDelete(emp)} disabled={deleting === emp.id}
+                          className="flex items-center gap-1 px-3 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-500 dark:text-red-400 rounded text-xs transition-all disabled:opacity-50">
+                          {deleting === emp.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                          Delete
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))
