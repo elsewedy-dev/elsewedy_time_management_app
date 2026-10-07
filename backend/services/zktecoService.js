@@ -257,13 +257,13 @@ class ZKTecoService {
         const dateOnly = checkInTime.toISOString().split('T')[0];
         const userId   = firstLog.userId.toString();
 
-        // Find the employee
+        // Find the employee by employeeId (company ID from device)
+        // Attendance logs contain userId (company ID), NOT uid (internal slot)
+        // Do NOT fall back to biometricId — that causes mismatches when
+        // one person's company ID equals another person's slot number
         let employee = await Employee.findOne({ where: { employeeId: userId } });
         if (!employee) {
-          employee = await Employee.findOne({ where: { biometricId: parseInt(userId) } });
-        }
-        if (!employee) {
-          logger.warn(`Employee not found for user_id: ${userId}`);
+          logger.warn(`Employee not found for user_id (company ID): ${userId} — skipping to avoid mismatch`);
           skipped++;
           continue;
         }
@@ -406,17 +406,37 @@ class ZKTecoService {
           if (firstName.length > 50) firstName = firstName.substring(0, 50);
           if (lastName.length > 50) lastName = lastName.substring(0, 50);
 
-          // Find employee by biometricId (uid) — this is the stable key
+          // Find employee by biometricId (uid from this device) OR by employeeId (userId)
+          // The same person can have different uids on different devices, so check both
           let employee = await Employee.findOne({ where: { biometricId } });
+          if (!employee) {
+            // Not found by biometricId — check by employeeId (company ID from device)
+            // This prevents creating duplicate employees when syncing from a second device
+            employee = await Employee.findOne({ where: { employeeId } });
+          }
 
           if (employee) {
-            // Update name AND real employeeId
-            // If employeeId conflicts with another employee, keep existing
+            // Only overwrite the name if:
+            // 1. The employee has no real name yet (numeric/empty), OR
+            // 2. The device name is not numeric/garbage AND matches the employee's current name
+            // This prevents a secondary device from overwriting a correct name with a wrong one
+            const currentNameIsReal = employee.firstName && !/^\d+$/.test(employee.firstName);
+            const deviceNameIsReal = firstName && !/^\d+$/.test(firstName);
+            const shouldUpdateName = !currentNameIsReal || !deviceNameIsReal
+              ? deviceNameIsReal  // only update if device has a real name and current doesn't
+              : employee.firstName.toLowerCase() === firstName.toLowerCase(); // same person confirmed
+
+            const updateData = { employeeId };
+            if (shouldUpdateName) {
+              updateData.firstName = firstName;
+              updateData.lastName = lastName;
+            }
+
             try {
-              await employee.update({ firstName, lastName, employeeId });
+              await employee.update(updateData);
             } catch (dupErr) {
-              // employeeId already taken by someone else — just update the name
-              await employee.update({ firstName, lastName });
+              // employeeId conflict — just update name if needed
+              if (shouldUpdateName) await employee.update({ firstName, lastName });
               logger.warn(`Duplicate employeeId=${employeeId} for uid=${biometricId} (${rawName}), kept existing ID`);
             }
             syncResults.updated++;

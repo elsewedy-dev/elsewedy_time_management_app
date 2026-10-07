@@ -65,7 +65,7 @@ export default function About({ isDark }) {
               </div>
               <div className="flex-1">
                 <div className="font-semibold text-lg text-light-text dark:text-dark-text">Henok Eyayalem</div>
-                <div className="text-sm text-light-textSecondary dark:text-dark-textSecondary mb-1">Lead Developer & Architect</div>
+                <div className="text-sm text-light-textSecondary dark:text-dark-textSecondary mb-1">Full-Stack Developer</div>
                 <div className="text-xs text-light-accent dark:text-dark-accent">Full-Stack Development, System Design</div>
               </div>
             </div>

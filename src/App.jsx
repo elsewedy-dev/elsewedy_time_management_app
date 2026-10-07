@@ -243,6 +243,8 @@ export default function App() {
           rawCheckIn: record.checkInTime,
           rawCheckOut: record.checkOutTime,
           department: record.employee?.department?.name || 'N/A',
+          deviceName: record.device?.name || null,
+          deviceLocation: record.device?.location || null,
         };
       });
       setAttendance(formattedAttendance);

@@ -71,7 +71,7 @@ export default function AttendanceTable({ data, loading, isDark }) {
       <table className="min-w-full">
         <thead className="bg-light-accent/5 dark:bg-dark-accent/5">
           <tr>
-            {["#", "Employee", "Shift", "In Time", "Out Time", "Hours", "Status", "Method"].map(h => (
+            {["#", "Employee", "Shift", "In Time", "Out Time", "Hours", "Status", "Method", "Device"].map(h => (
               <th key={h} className="px-4 py-3 text-left text-sm font-semibold text-light-text dark:text-dark-text border-b border-light-border dark:border-dark-border whitespace-nowrap">
                 {h}
               </th>
@@ -81,7 +81,7 @@ export default function AttendanceTable({ data, loading, isDark }) {
         <tbody>
           {data.length === 0 ? (
             <tr>
-              <td colSpan={8} className="text-center py-8 text-light-textSecondary dark:text-dark-textSecondary">
+              <td colSpan={9} className="text-center py-8 text-light-textSecondary dark:text-dark-textSecondary">
                 No records found.
               </td>
             </tr>
@@ -143,6 +143,13 @@ export default function AttendanceTable({ data, loading, isDark }) {
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm text-light-textSecondary dark:text-dark-textSecondary capitalize">
                     {row.method}
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap text-sm text-light-textSecondary dark:text-dark-textSecondary">
+                    {row.deviceName ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                        {row.deviceName}
+                      </span>
+                    ) : '—'}
                   </td>
                 </tr>
               );

@@ -5,10 +5,10 @@
   "type": "module",
   "main": "main.cjs",
   "scripts": {
-    "dev": "vite --host 0.0.0.0 --port 8080",
-    "build": "vite build",
-    "lint": "eslint .",
-    "preview": "vite preview",
+    "dev": "node ./node_modules/vite/bin/vite.js --host 0.0.0.0 --port 8080",
+    "build": "node ./node_modules/vite/bin/vite.js build",
+    "lint": "node ./node_modules/eslint/bin/eslint.js .",
+    "preview": "node ./node_modules/vite/bin/vite.js preview",
     "electron": "cross-env NODE_ENV=development electron .",
     "electron:prod": "cross-env NODE_ENV=production electron ."
   },

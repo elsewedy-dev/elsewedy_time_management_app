@@ -212,7 +212,8 @@ router.post('/clear-it-departments', async (req, res) => {
 // Fix employee IDs to use biometric ID
 router.post('/fix-employee-ids', async (req, res) => {
   try {
-    // Find all employees with biometric IDs
+    // Re-sync employeeId from the device's userId (company ID)
+    // This ensures employeeId matches what attendance logs contain
     const employees = await Employee.findAll({
       where: {
         biometricId: {
@@ -229,42 +230,23 @@ router.post('/fix-employee-ids', async (req, res) => {
 
     for (const employee of employees) {
       try {
-        const oldEmployeeId = employee.employeeId;
-        const newEmployeeId = employee.biometricId.toString();
-
-        // Skip if already using biometric ID
-        if (oldEmployeeId === newEmployeeId) {
+        // employeeId should already be the company ID from device sync
+        // Only update if it's missing or looks like a biometricId (pure number matching biometricId)
+        const looksLikeBiometricId = employee.employeeId === employee.biometricId?.toString();
+        
+        if (!looksLikeBiometricId) {
           skipped++;
           continue;
         }
 
-        // Check if the new employee ID already exists (conflict)
-        const existingEmployee = await Employee.findOne({
-          where: {
-            employeeId: newEmployeeId,
-            id: {
-              [Op.ne]: employee.id
-            }
-          }
+        // Can't fix without device connection — just log it
+        errors.push({
+          employee: `${employee.firstName} ${employee.lastName}`,
+          currentId: employee.employeeId,
+          biometricId: employee.biometricId,
+          error: 'employeeId matches biometricId — re-sync from device to fix'
         });
-
-        if (existingEmployee) {
-          errors.push({
-            employee: `${employee.firstName} ${employee.lastName}`,
-            oldId: oldEmployeeId,
-            newId: newEmployeeId,
-            error: `Conflict: Employee ID ${newEmployeeId} already exists`
-          });
-          continue;
-        }
-
-        // Update employee ID to match biometric ID
-        await employee.update({
-          employeeId: newEmployeeId
-        });
-
-        logger.info(`Updated ${employee.firstName} ${employee.lastName}: ${oldEmployeeId} → ${newEmployeeId}`);
-        updated++;
+        continue;
 
       } catch (error) {
         errors.push({
@@ -276,7 +258,7 @@ router.post('/fix-employee-ids', async (req, res) => {
 
     res.json({
       success: true,
-      message: `Migration completed: ${updated} updated, ${skipped} skipped, ${errors.length} errors`,
+      message: `Check complete: ${updated} updated, ${skipped} already correct, ${errors.length} need re-sync from device`,
       data: {
         total: employees.length,
         updated,
