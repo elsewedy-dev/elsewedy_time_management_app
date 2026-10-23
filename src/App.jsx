@@ -63,22 +63,41 @@ function exportToCSV(data) {
 }
 
 export default function App() {
-  // ── Role detection based on access origin ─────────────────────────────────
-  const hostname = window.location.hostname;
-  const isAdmin = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
-  const isHR    = hostname === '10.201.1.197';
+  // ── Role detection via backend (checks client's real IP) ──────────────────
+  const [role, setRole] = useState(null); // null = loading, 'admin' | 'hr' | 'denied'
 
-  // Block access from any other IP
-  if (!isAdmin && !isHR) {
+  useEffect(() => {
+    fetch('/api/auth/access-role')
+      .then(r => r.json())
+      .then(res => {
+        if (res.success && res.data) setRole(res.data.role);
+        else setRole('denied');
+      })
+      .catch(() => setRole('denied'));
+  }, []);
+
+  // Loading state
+  if (role === null) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-gray-950 text-white">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  // Access denied
+  if (role === 'denied') {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-gray-950 text-white gap-4">
         <div className="text-6xl">🔒</div>
         <h1 className="text-2xl font-bold">Access Denied</h1>
         <p className="text-gray-400 text-sm">Your IP address is not authorised to access this system.</p>
-        <p className="text-gray-600 text-xs font-mono">{hostname}</p>
       </div>
     );
   }
+
+  const isAdmin = role === 'admin';
+  const isHR    = role === 'hr';
   // ──────────────────────────────────────────────────────────────────────────
 
   // For Electron desktop app, start with sidebar closed for better UX

@@ -226,6 +226,29 @@ router.post('/refresh', [
   }
 });
 
+// Access role detection — checks the client's real IP
+// Admin IPs: localhost + 10.201.1.213
+// HR IP: 10.201.1.178
+// All others: denied
+const ADMIN_IPS = ['127.0.0.1', '::1', '::ffff:127.0.0.1', '10.201.1.213'];
+const HR_IPS    = ['10.201.1.178'];
+
+router.get('/access-role', (req, res) => {
+  let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+  // Strip IPv6 prefix if present (e.g. ::ffff:10.201.1.213 → 10.201.1.213)
+  clientIp = clientIp.replace(/^::ffff:/, '');
+
+  let role = 'denied';
+  if (ADMIN_IPS.includes(clientIp) || clientIp === 'localhost') {
+    role = 'admin';
+  } else if (HR_IPS.includes(clientIp)) {
+    role = 'hr';
+  }
+
+  logger.info(`Access role check from IP: ${clientIp} → ${role}`);
+  res.json({ success: true, data: { role, ip: clientIp } });
+});
+
 // Logout endpoint
 router.post('/logout', (req, res) => {
   // In a real application, you might want to blacklist the token

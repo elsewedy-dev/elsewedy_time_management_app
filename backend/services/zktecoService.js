@@ -416,28 +416,41 @@ class ZKTecoService {
           }
 
           if (employee) {
-            // Only overwrite the name if:
-            // 1. The employee has no real name yet (numeric/empty), OR
-            // 2. The device name is not numeric/garbage AND matches the employee's current name
-            // This prevents a secondary device from overwriting a correct name with a wrong one
-            const currentNameIsReal = employee.firstName && !/^\d+$/.test(employee.firstName);
+            // PROTECTION: Never overwrite an existing real name.
+            // Names are set once on first sync. A secondary device with a conflicting
+            // name must NOT corrupt the primary enrollment.
+            const currentNameIsReal = employee.firstName &&
+              !/^\d+$/.test(employee.firstName) &&
+              employee.firstName.trim() !== '';
             const deviceNameIsReal = firstName && !/^\d+$/.test(firstName);
-            const shouldUpdateName = !currentNameIsReal || !deviceNameIsReal
-              ? deviceNameIsReal  // only update if device has a real name and current doesn't
-              : employee.firstName.toLowerCase() === firstName.toLowerCase(); // same person confirmed
 
-            const updateData = { employeeId };
-            if (shouldUpdateName) {
+            const updateData = {};
+
+            // Only update name if current name is numeric/empty and device has a real name
+            if (!currentNameIsReal && deviceNameIsReal) {
               updateData.firstName = firstName;
-              updateData.lastName = lastName;
+              updateData.lastName  = lastName;
             }
 
-            try {
-              await employee.update(updateData);
-            } catch (dupErr) {
-              // employeeId conflict — just update name if needed
-              if (shouldUpdateName) await employee.update({ firstName, lastName });
-              logger.warn(`Duplicate employeeId=${employeeId} for uid=${biometricId} (${rawName}), kept existing ID`);
+            // PROTECTION: Only update employeeId if the employee has no employeeId yet,
+            // or if it looks like it was set to the raw biometricId (not a real company ID).
+            // This prevents a secondary device from overwriting a correct company ID.
+            const currentIdLooksWrong = !employee.employeeId ||
+              employee.employeeId === employee.biometricId?.toString();
+            if (currentIdLooksWrong) {
+              updateData.employeeId = employeeId;
+            }
+
+            if (Object.keys(updateData).length > 0) {
+              try {
+                await employee.update(updateData);
+              } catch (dupErr) {
+                // employeeId conflict — only update name if needed, never change ID
+                if (!currentNameIsReal && deviceNameIsReal) {
+                  await employee.update({ firstName, lastName });
+                }
+                logger.warn(`Duplicate employeeId=${employeeId} for uid=${biometricId} (${rawName}), kept existing ID`);
+              }
             }
             syncResults.updated++;
             logger.debug(`Updated employee: ${rawName} (uid=${biometricId}, employeeId=${employeeId})`);

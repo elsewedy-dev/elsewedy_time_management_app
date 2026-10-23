@@ -312,8 +312,8 @@ router.post('/fix-surnames', async (req, res) => {
   }
 });
 
-// Clear all employees and attendance (for testing)
-router.post('/clear-all', async (req, res) => {
+// Clear all employees and attendance — ADMIN ONLY
+router.post('/clear-all', [authMiddleware, permissionMiddleware('employees.delete')], async (req, res) => {
   try {
     const { Attendance } = await import('../models/Attendance.js');
     

@@ -558,8 +558,10 @@ router.delete('/:id', [
   }
 });
 
-// Mark / unmark attendance as sick leave (no auth required)
+// Mark / unmark attendance as sick leave
 router.put('/:id/sick-leave', [
+  authMiddleware,
+  permissionMiddleware('attendance.update'),
   param('id').isUUID(),
   body('sickLeave').isBoolean(),
   body('sickLeaveNote').optional().isString(),
@@ -587,8 +589,10 @@ router.put('/:id/sick-leave', [
   }
 });
 
-// Create sick leave record for absent employee (no existing attendance record)
+// Create sick leave record for absent employee
 router.post('/sick-leave', [
+  authMiddleware,
+  permissionMiddleware('attendance.update'),
   body('employeeId').isUUID(),
   body('date').isISO8601(),
   body('sickLeaveNote').optional().isString(),
@@ -634,8 +638,8 @@ router.post('/sick-leave', [
   }
 });
 
-// Reset today's attendance (clear all records for today)
-router.post('/reset-today', async (req, res) => {
+// Reset today's attendance — ADMIN ONLY
+router.post('/reset-today', [authMiddleware, permissionMiddleware('attendance.delete')], async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
     

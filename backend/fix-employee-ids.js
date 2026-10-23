@@ -15,22 +15,46 @@ import ZKTeco from 'zkteco-js';
 import { sequelize } from './config/database.js';
 import { Employee } from './models/Employee.js';
 
-const DEVICE_IP = '10.201.1.197';
-const DEVICE_PORT = 4370;
+const DEVICES = [
+  { ip: '10.201.1.199', port: 4370, name: 'XFace Pro Factory Entrance' },
+  { ip: '10.201.1.188', port: 4370, name: 'HR Gate' },
+];
 
 async function fixEmployeeIds() {
   try {
     await sequelize.authenticate();
     console.log('✅ Database connected\n');
 
-    // Pull all users from ZKTeco device
-    console.log('Connecting to ZKTeco device...');
-    const zk = new ZKTeco(DEVICE_IP, DEVICE_PORT, 5200, 10000);
-    await zk.createSocket();
-    console.log('✅ Connected');
-    const { data: users } = await zk.getUsers();
-    await zk.disconnect();
-    console.log(`✅ Got ${users.length} users from device\n`);
+    // Pull users from both devices (XFace Pro is authoritative for name conflicts)
+    console.log('Connecting to devices...');
+    const allUsers = new Map(); // userId -> user (XFace Pro wins on conflict)
+
+    for (const dev of DEVICES) {
+      try {
+        const zk = new ZKTeco(dev.ip, dev.port, 5200, 10000);
+        await zk.createSocket();
+        const { data: users } = await zk.getUsers();
+        await zk.disconnect();
+        console.log(`✅ ${dev.name}: ${users.length} users`);
+        // Add users — but don't overwrite real names with numeric/empty ones
+        for (const u of users) {
+          const uid = u.userId?.toString().trim();
+          if (!uid) continue;
+          const existing = allUsers.get(uid);
+          const newName = u.name?.trim() || '';
+          const newNameIsReal = newName && !/^\d+$/.test(newName);
+          const existingNameIsReal = existing && existing.name && !/^\d+$/.test(existing.name);
+          if (!existing || (!existingNameIsReal && newNameIsReal)) {
+            allUsers.set(uid, u);
+          }
+        }
+      } catch (e) {
+        console.warn(`⚠️  Could not connect to ${dev.name}: ${e.message}`);
+      }
+    }
+
+    const users = [...allUsers.values()];
+    console.log(`✅ Got ${users.length} unique users across devices\n`);
 
     let updated = 0;
     let notFound = 0;
@@ -43,8 +67,12 @@ async function fixEmployeeIds() {
 
       if (!userId) continue;
 
-      // Find employee by biometricId (uid) — this is always correct
-      const employee = await Employee.findOne({ where: { biometricId: uid } });
+      // Find employee by employeeId (company ID) — the stable anchor
+      // Fall back to biometricId only if employeeId lookup fails
+      let employee = await Employee.findOne({ where: { employeeId: userId } });
+      if (!employee) {
+        employee = await Employee.findOne({ where: { biometricId: uid } });
+      }
 
       if (!employee) {
         console.log(`  ⚠️  No employee found for uid=${uid} (${user.name})`);
