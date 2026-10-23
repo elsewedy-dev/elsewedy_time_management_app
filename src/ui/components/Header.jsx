@@ -119,10 +119,18 @@ export default function Header({ onMenuClick, sidebarOpen, isDark, toggleTheme, 
         
         <ThemeToggle isDark={isDark} toggleTheme={toggleTheme} />
         
-        {isAdmin && (
-          <button 
-            onClick={onSyncLogs}
-            disabled={syncing}
+        {!isAdmin && (
+          <button
+            onClick={() => { sessionStorage.removeItem('adminUnlocked'); sessionStorage.removeItem('hrMode'); window.location.reload(); }}
+            className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 hover:text-light-text dark:hover:text-dark-text border border-light-border dark:border-dark-border rounded-lg transition-all"
+            title="Switch to Admin login"
+          >
+            🔒 Admin Login
+          </button>
+        )}
+        <button 
+          onClick={onSyncLogs}
+          disabled={syncing}
             className="px-4 py-2 bg-gradient-to-r from-light-accent to-blue-600 dark:from-dark-accent dark:to-purple-600 hover:from-blue-600 hover:to-blue-700 dark:hover:from-purple-600 dark:hover:to-purple-700 text-white rounded-lg font-medium transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
             title="Sync attendance logs from device (Ctrl+R)"
           >
@@ -131,7 +139,6 @@ export default function Header({ onMenuClick, sidebarOpen, isDark, toggleTheme, 
             </svg>
             {syncing ? 'Syncing...' : 'Sync Logs'}
           </button>
-        )}
       </div>
     </header>
   );

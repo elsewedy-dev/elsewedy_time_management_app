@@ -63,41 +63,37 @@ function exportToCSV(data) {
 }
 
 export default function App() {
-  // ── Role detection via backend (checks client's real IP) ──────────────────
-  const [role, setRole] = useState(null); // null = loading, 'admin' | 'hr' | 'denied'
+  // ── Role detection ─────────────────────────────────────────────────────────
+  const hostname = window.location.hostname;
+  // HR PC at 10.201.1.178 is always read-only
+  const isForceHR = hostname === '10.201.1.178';
 
-  useEffect(() => {
-    fetch('/api/auth/access-role')
-      .then(r => r.json())
-      .then(res => {
-        if (res.success && res.data) setRole(res.data.role);
-        else setRole('denied');
-      })
-      .catch(() => setRole('denied'));
-  }, []);
+  const ADMIN_PIN = '213213';
+  const [adminUnlocked, setAdminUnlocked] = useState(
+    () => !isForceHR && sessionStorage.getItem('adminUnlocked') === 'true'
+  );
+  const [hrMode, setHrMode] = useState(
+    () => isForceHR || sessionStorage.getItem('hrMode') === 'true'
+  );
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
 
-  // Loading state
-  if (role === null) {
-    return (
-      <div className="h-screen w-screen flex items-center justify-center bg-gray-950 text-white">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-      </div>
-    );
+  const isAdmin = adminUnlocked && !isForceHR;
+  const isHR = !isAdmin;
+
+  function handlePinSubmit(e) {
+    e.preventDefault();
+    if (pinInput === ADMIN_PIN) {
+      sessionStorage.setItem('adminUnlocked', 'true');
+      sessionStorage.removeItem('hrMode');
+      setAdminUnlocked(true);
+      setHrMode(false);
+      setPinError(false);
+    } else {
+      setPinError(true);
+      setPinInput('');
+    }
   }
-
-  // Access denied
-  if (role === 'denied') {
-    return (
-      <div className="h-screen w-screen flex flex-col items-center justify-center bg-gray-950 text-white gap-4">
-        <div className="text-6xl">🔒</div>
-        <h1 className="text-2xl font-bold">Access Denied</h1>
-        <p className="text-gray-400 text-sm">Your IP address is not authorised to access this system.</p>
-      </div>
-    );
-  }
-
-  const isAdmin = role === 'admin';
-  const isHR    = role === 'hr';
   // ──────────────────────────────────────────────────────────────────────────
 
   // For Electron desktop app, start with sidebar closed for better UX
@@ -351,6 +347,36 @@ export default function App() {
       return dateMatch && nameMatch && typeMatch;
     });
   }, [attendance, filters]);
+
+  // Show PIN prompt if not yet decided on role
+  if (!adminUnlocked && !hrMode) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-gray-950 text-white gap-6">
+        <img src="/icon.png" alt="Logo" className="w-16 h-16 object-contain opacity-80" />
+        <h1 className="text-2xl font-bold tracking-tight">BioShift</h1>
+        <form onSubmit={handlePinSubmit} className="flex flex-col items-center gap-3 w-72">
+          <input
+            type="password"
+            value={pinInput}
+            onChange={e => { setPinInput(e.target.value); setPinError(false); }}
+            placeholder="Enter admin PIN"
+            autoFocus
+            className={`w-full px-4 py-3 rounded-xl text-center text-lg tracking-widest bg-gray-800 border ${pinError ? 'border-red-500' : 'border-gray-700'} focus:outline-none focus:border-blue-500 text-white`}
+          />
+          {pinError && <p className="text-red-400 text-sm">Incorrect PIN. Try again.</p>}
+          <button type="submit"
+            className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-semibold transition-all">
+            Unlock Admin
+          </button>
+          <button type="button"
+            onClick={() => { sessionStorage.setItem('hrMode', 'true'); setHrMode(true); }}
+            className="text-sm text-gray-500 hover:text-gray-300 transition-all">
+            Continue as HR (read-only)
+          </button>
+        </form>
+      </div>
+    );
+  }
 
   // Sidebar nav links — Devices and Settings are admin-only
   const navLinks = [
